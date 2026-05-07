@@ -1,0 +1,25 @@
+# Build output
+build/
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+CMakeSettings.json
+CMakePresets.json
+
+# Debug logs
+uber_plugin_log.txt
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Compiled binaries
+*.exe
+*.dll
+*.vst3
+*.obj
+*.pdb
+*.ilk
