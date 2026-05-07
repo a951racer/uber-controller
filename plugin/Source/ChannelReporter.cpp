@@ -10,7 +10,6 @@
 #endif
 
 ChannelReporter::ChannelReporter() : juce::Thread("ChannelReporter") {}
-
 ChannelReporter::~ChannelReporter() { stop(); }
 
 void ChannelReporter::start(const juce::String& h, int p)
@@ -33,24 +32,29 @@ void ChannelReporter::setTrackInfo(const juce::String& uuid,
                                    const juce::String& instance,
                                    const juce::String& name,
                                    const juce::String& type,
-                                   int channel)
+                                   int channel,
+                                   int group)
 {
     std::lock_guard<std::mutex> lock(metaMutex);
 
     if (trackUuid != uuid || pluginInstance != instance ||
-        trackName != name || trackType != type || mcuChannel != channel)
+        trackName != name || trackType != type ||
+        mcuChannel != channel || groupId != group)
     {
         trackUuid      = uuid;
         pluginInstance = instance;
         trackName      = name;
         trackType      = type;
         mcuChannel     = channel;
+        groupId        = group;
         needsSend      = true;
     }
 }
 
 void ChannelReporter::run()
 {
+    juce::String lineBuffer;
+
     while (!threadShouldExit())
     {
         if (!connected)
@@ -71,6 +75,7 @@ void ChannelReporter::run()
         if (needsSend.exchange(false))
             sendRegister();
 
+        // Heartbeat
         double now = juce::Time::getMillisecondCounterHiRes();
         if (now - lastHeartbeatTime >= kHeartbeatMs)
         {
@@ -78,8 +83,28 @@ void ChannelReporter::run()
             lastHeartbeatTime = now;
         }
 
-        if (threadShouldExit()) return;
+        // Read incoming data from middleware (group list updates)
+        if (socket && connected)
+        {
+            char buf[1024];
+            int n = socket->read(buf, sizeof(buf) - 1, false);
+            if (n > 0)
+            {
+                buf[n] = '\0';
+                lineBuffer += juce::String::fromUTF8(buf, n);
 
+                int pos;
+                while ((pos = lineBuffer.indexOf("\n")) >= 0)
+                {
+                    juce::String line = lineBuffer.substring(0, pos).trim();
+                    lineBuffer = lineBuffer.substring(pos + 1);
+                    if (line.isNotEmpty())
+                        processIncoming(line);
+                }
+            }
+        }
+
+        if (threadShouldExit()) return;
         juce::Thread::sleep(100);
     }
 }
@@ -110,11 +135,13 @@ void ChannelReporter::sendRegister()
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty("cmd", "register");
+    obj->setProperty("plugin_type", "channel_agent");
     obj->setProperty("track_uuid", trackUuid);
     obj->setProperty("plugin_instance", pluginInstance);
     obj->setProperty("name", trackName);
     obj->setProperty("type", trackType);
     obj->setProperty("mcu_channel", mcuChannel);
+    obj->setProperty("group_id", groupId);
 
     sendJson(juce::JSON::toString(juce::var(obj), true));
 }
@@ -125,9 +152,11 @@ void ChannelReporter::sendHeartbeat()
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty("cmd", "heartbeat");
+    obj->setProperty("plugin_type", "channel_agent");
     obj->setProperty("track_uuid", trackUuid);
     obj->setProperty("plugin_instance", pluginInstance);
     obj->setProperty("mcu_channel", mcuChannel);
+    obj->setProperty("group_id", groupId);
 
     sendJson(juce::JSON::toString(juce::var(obj), true));
 }
@@ -145,5 +174,40 @@ void ChannelReporter::sendJson(const juce::String& json)
     {
         connected = false;
         socket.reset();
+    }
+}
+
+void ChannelReporter::processIncoming(const juce::String& line)
+{
+    auto parsed = juce::JSON::parse(line);
+    auto* obj = parsed.getDynamicObject();
+    if (!obj) return;
+
+    juce::String cmd = obj->getProperty("cmd").toString();
+
+    if (cmd == "groupList")
+    {
+        auto* arr = obj->getProperty("groups").getArray();
+        if (!arr) return;
+
+        std::vector<GroupInfo> groups;
+        for (auto& item : *arr)
+        {
+            auto* gObj = item.getDynamicObject();
+            if (!gObj) continue;
+            GroupInfo gi;
+            gi.id   = static_cast<int>(gObj->getProperty("id"));
+            gi.name = gObj->getProperty("name").toString();
+            groups.push_back(gi);
+        }
+
+        if (onGroupList)
+        {
+            juce::MessageManager::callAsync([this, groups]()
+            {
+                if (onGroupList)
+                    onGroupList(groups);
+            });
+        }
     }
 }

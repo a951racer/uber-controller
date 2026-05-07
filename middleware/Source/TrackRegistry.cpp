@@ -23,11 +23,13 @@ bool TrackRegistry::registerTrack(const TrackInfo& info)
             auto& existing = it->second;
             if (existing.name != info.name ||
                 existing.type != info.type ||
-                existing.mcuChannel != info.mcuChannel)
+                existing.mcuChannel != info.mcuChannel ||
+                existing.groupId != info.groupId)
             {
                 existing.name       = info.name;
                 existing.type       = info.type;
                 existing.mcuChannel = info.mcuChannel;
+                existing.groupId    = info.groupId;
                 existing.lastSeen   = juce::Time::getMillisecondCounterHiRes();
                 changed = true;
             }
@@ -130,4 +132,21 @@ const TrackInfo* TrackRegistry::getTrackForMcuChannel(int mcuChannel) const
         if (info.mcuChannel == mcuChannel)
             return &info;
     return nullptr;
+}
+
+void TrackRegistry::setGroups(const std::vector<GroupDef>& groups)
+{
+    {
+        std::lock_guard<std::mutex> lock(groupMutex);
+        groupDefs = groups;
+    }
+
+    if (onChange)
+        onChange();
+}
+
+std::vector<TrackRegistry::GroupDef> TrackRegistry::getGroups() const
+{
+    std::lock_guard<std::mutex> lock(groupMutex);
+    return groupDefs;
 }

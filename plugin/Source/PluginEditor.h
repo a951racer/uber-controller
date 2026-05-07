@@ -1,5 +1,4 @@
 // PluginEditor.h
-// Simple UI showing connection status and allowing track name / MCU channel config.
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
@@ -16,6 +15,7 @@ public:
 
 private:
     void timerCallback() override;
+    void refreshGroupCombo();
 
     UberChannelAgentProcessor& processor;
 
@@ -31,6 +31,11 @@ private:
 
     juce::Label mcuChannelLabel  { {}, "MCU Channel:" };
     juce::ComboBox mcuChannelCombo;
+
+    juce::Label groupLabel       { {}, "Group:" };
+    juce::ComboBox groupCombo;
+
+    std::vector<GroupInfo> lastKnownGroups;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UberChannelAgentEditor)
 };

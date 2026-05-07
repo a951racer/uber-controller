@@ -11,7 +11,6 @@ public:
     UberChannelAgentProcessor();
     ~UberChannelAgentProcessor() override;
 
-    // AudioProcessor overrides (no-op for audio)
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
@@ -33,24 +32,26 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
-    // Accessors for the editor
+    // Accessors
     ChannelReporter& getReporter() { return reporter; }
     juce::String getTrackName() const { return currentTrackName; }
     juce::String getTrackType() const { return trackType; }
     juce::String getTrackUuid() const { return trackUuid; }
     int getMcuChannel() const { return mcuChannel; }
+    int getGroupId() const { return groupId; }
 
-    /** Called by the editor to update the track name. */
+    // Available groups (received from middleware)
+    std::vector<GroupInfo> getAvailableGroups() const;
+
+    // Setters (called by editor)
     void setTrackName(const juce::String& name);
-
-    /** Called by the editor to update the track type. */
     void setTrackType(const juce::String& type);
-
-    /** Called by the editor or externally to set the MCU channel. */
     void setMcuChannel(int ch);
+    void setGroupId(int id);
 
 private:
     juce::String generateUuid();
+    void sendUpdate();
 
     ChannelReporter reporter;
 
@@ -59,6 +60,11 @@ private:
     juce::String currentTrackName;
     juce::String trackType { "Audio" };
     int          mcuChannel = -1;
+    int          groupId    = 0;  // 0 = no group
+
+    // Groups received from middleware
+    mutable std::mutex groupsMutex;
+    std::vector<GroupInfo> availableGroups;
 
     juce::String middlewareHost { "127.0.0.1" };
     int          middlewarePort = 9001;

@@ -2,6 +2,7 @@
 #include "PluginServer.h"
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 #if JUCE_WINDOWS
   #pragma comment(lib, "ws2_32.lib")
@@ -111,7 +112,11 @@ void PluginServer::acceptLoop()
 
         std::cout << "[Plugin] Client connected" << std::endl;
 
-        std::lock_guard<std::mutex> lock(clientMutex);
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            connectedClients.push_back(clientSock);
+        }
+
         clientThreads.emplace_back([this, clientSock]() { clientLoop(clientSock); });
     }
 }
@@ -156,7 +161,7 @@ void PluginServer::clientLoop(SocketHandle clientSock)
                 if (!line.empty())
                 {
                     std::cout << "[Plugin] Received: " << line << std::endl;
-                    processLine(line, lastTrackUuid);
+                    processLine(line, lastTrackUuid, clientSock);
                 }
             }
         }
@@ -188,6 +193,14 @@ void PluginServer::clientLoop(SocketHandle clientSock)
         registry.removeTrack(juce::String(lastTrackUuid));
     }
 
+    // Remove from connected clients list
+    {
+        std::lock_guard<std::mutex> lock(clientMutex);
+        connectedClients.erase(
+            std::remove(connectedClients.begin(), connectedClients.end(), clientSock),
+            connectedClients.end());
+    }
+
 #if JUCE_WINDOWS
     closesocket(clientSock);
 #else
@@ -195,7 +208,7 @@ void PluginServer::clientLoop(SocketHandle clientSock)
 #endif
 }
 
-void PluginServer::processLine(const std::string& line, std::string& lastTrackUuid)
+void PluginServer::processLine(const std::string& line, std::string& lastTrackUuid, SocketHandle clientSock)
 {
     auto parsed = juce::JSON::parse(juce::String(line));
     auto* obj = parsed.getDynamicObject();
@@ -211,6 +224,7 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
         info.name           = obj->getProperty("name").toString();
         info.type           = obj->getProperty("type").toString();
         info.mcuChannel     = static_cast<int>(obj->getProperty("mcu_channel"));
+        info.groupId        = static_cast<int>(obj->getProperty("group_id"));
 
         lastTrackUuid = info.trackUuid.toStdString();
 
@@ -218,7 +232,29 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
 
         std::cout << "[Plugin] " << cmd.toStdString() << " track=\"" << info.name.toStdString()
                   << "\" uuid=" << info.trackUuid.toStdString()
-                  << " mcu_ch=" << info.mcuChannel << std::endl;
+                  << " mcu_ch=" << info.mcuChannel
+                  << " group=" << info.groupId << std::endl;
+
+        // Send current group list to this client on first register
+        auto groups = registry.getGroups();
+        if (!groups.empty())
+        {
+            auto* gObj = new juce::DynamicObject();
+            gObj->setProperty("cmd", "groupList");
+            juce::Array<juce::var> arr;
+            for (auto& g : groups)
+            {
+                auto* item = new juce::DynamicObject();
+                item->setProperty("id", g.id);
+                item->setProperty("name", g.name);
+                arr.add(juce::var(item));
+            }
+            gObj->setProperty("groups", arr);
+
+            juce::String json = juce::JSON::toString(juce::var(gObj), true).removeCharacters("\r\n") + "\n";
+            auto utf8 = json.toUTF8();
+            send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
+        }
     }
     else if (cmd == "heartbeat")
     {
@@ -227,7 +263,73 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
         int mcuCh             = static_cast<int>(obj->getProperty("mcu_channel"));
 
         lastTrackUuid = uuid.toStdString();
-
         registry.heartbeat(uuid, instance, mcuCh);
+    }
+    else if (cmd == "defineGroups")
+    {
+        auto* arr = obj->getProperty("groups").getArray();
+        if (!arr) return;
+
+        std::vector<TrackRegistry::GroupDef> groups;
+        for (auto& item : *arr)
+        {
+            auto* gObj = item.getDynamicObject();
+            if (!gObj) continue;
+            TrackRegistry::GroupDef g;
+            g.id   = static_cast<int>(gObj->getProperty("id"));
+            g.name = gObj->getProperty("name").toString();
+            groups.push_back(g);
+        }
+
+        registry.setGroups(groups);
+
+        std::cout << "[Plugin] Groups defined: " << groups.size() << " groups" << std::endl;
+
+        // Broadcast group list to all connected clients
+        auto* gObj = new juce::DynamicObject();
+        gObj->setProperty("cmd", "groupList");
+        juce::Array<juce::var> groupArr;
+        for (auto& g : groups)
+        {
+            auto* item = new juce::DynamicObject();
+            item->setProperty("id", g.id);
+            item->setProperty("name", g.name);
+            groupArr.add(juce::var(item));
+        }
+        gObj->setProperty("groups", groupArr);
+
+        std::string jsonStr = juce::JSON::toString(juce::var(gObj), true)
+                                  .removeCharacters("\r\n").toStdString() + "\n";
+        broadcastJson(jsonStr);
+
+        // Also send track assignments to the group manager
+        auto tracks = registry.getAllTracks();
+        auto* tObj = new juce::DynamicObject();
+        tObj->setProperty("cmd", "trackAssignments");
+        juce::Array<juce::var> trackArr;
+        for (auto& t : tracks)
+        {
+            auto* ti = new juce::DynamicObject();
+            ti->setProperty("track_uuid", t.trackUuid);
+            ti->setProperty("name", t.name);
+            ti->setProperty("mcu_channel", t.mcuChannel);
+            ti->setProperty("group_id", t.groupId);
+            trackArr.add(juce::var(ti));
+        }
+        tObj->setProperty("tracks", trackArr);
+
+        juce::String trackJson = juce::JSON::toString(juce::var(tObj), true)
+                                     .removeCharacters("\r\n") + "\n";
+        auto utf8 = trackJson.toUTF8();
+        send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
+    }
+}
+
+void PluginServer::broadcastJson(const std::string& json)
+{
+    std::lock_guard<std::mutex> lock(clientMutex);
+    for (auto sock : connectedClients)
+    {
+        send(sock, json.c_str(), (int)json.size(), 0);
     }
 }

@@ -25,6 +25,7 @@ private:
     void onDawMessage(const Sim::Message& msg);
     void onTrackRegistryChanged();
     void broadcastTrackMeta();
+    void broadcastTrackAssignments();
 
     MidiEngine    midiEngine;
     TcpServer     tcpServer;       // for simulator/hardware (binary protocol)

@@ -1,19 +1,30 @@
 // ChannelReporter.h
 // Manages a TCP connection to the middleware and sends channel metadata.
-// Runs a background thread for non-blocking I/O.
+// Also receives group list from the middleware (bidirectional).
 #pragma once
 #include <JuceHeader.h>
 #include <functional>
 #include <mutex>
 #include <atomic>
+#include <vector>
+
+struct GroupInfo
+{
+    int          id = 0;
+    juce::String name;
+
+    bool operator==(const GroupInfo& other) const { return id == other.id && name == other.name; }
+    bool operator!=(const GroupInfo& other) const { return !(*this == other); }
+};
 
 class ChannelReporter : private juce::Thread
 {
 public:
+    using GroupListCallback = std::function<void(const std::vector<GroupInfo>&)>;
+
     ChannelReporter();
     ~ChannelReporter() override;
 
-    /** Start the reporter. Connects to middleware at host:port. */
     void start(const juce::String& host, int port);
     void stop();
 
@@ -23,11 +34,14 @@ public:
                       const juce::String& pluginInstance,
                       const juce::String& trackName,
                       const juce::String& trackType,
-                      int mcuChannel);
+                      int mcuChannel,
+                      int groupId = 0);
+
+    /** Set callback for when the middleware sends an updated group list. */
+    void setGroupListCallback(GroupListCallback cb) { onGroupList = std::move(cb); }
 
     bool isConnected() const { return connected.load(); }
 
-    // Connection settings
     static constexpr int kReconnectMs  = 5000;
     static constexpr int kHeartbeatMs  = 30000;
 
@@ -37,6 +51,7 @@ private:
     void sendRegister();
     void sendHeartbeat();
     void sendJson(const juce::String& json);
+    void processIncoming(const juce::String& line);
 
     juce::String host;
     int          port = 9001;
@@ -44,14 +59,16 @@ private:
     std::unique_ptr<juce::StreamingSocket> socket;
     std::atomic<bool> connected { false };
 
-    // Track metadata (protected by mutex)
     std::mutex  metaMutex;
     juce::String trackUuid;
     juce::String pluginInstance;
     juce::String trackName;
     juce::String trackType;
     int          mcuChannel = -1;
+    int          groupId    = 0;
 
     std::atomic<bool> needsSend { false };
     double lastHeartbeatTime = 0.0;
+
+    GroupListCallback onGroupList;
 };

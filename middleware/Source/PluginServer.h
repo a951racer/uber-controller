@@ -35,10 +35,13 @@ public:
     bool start(int port);
     void stop();
 
+    /** Broadcast a JSON message to all connected plugin clients. */
+    void broadcastJson(const std::string& json);
+
 private:
     void acceptLoop();
     void clientLoop(SocketHandle clientSock);
-    void processLine(const std::string& line, std::string& lastTrackUuid);
+    void processLine(const std::string& line, std::string& lastTrackUuid, SocketHandle clientSock);
 
     TrackRegistry& registry;
     int listenPort = 9001;
@@ -48,5 +51,8 @@ private:
 
     std::thread acceptThread;
     std::vector<std::thread> clientThreads;
+
+    // Track connected client sockets for broadcasting
     std::mutex clientMutex;
+    std::vector<SocketHandle> connectedClients;
 };

@@ -14,8 +14,9 @@ struct TrackInfo
     juce::String pluginInstance;
     juce::String name;
     juce::String type;
-    int          mcuChannel = -1;   // 0-based MCU fader position reported by plugin
-    double       lastSeen   = 0.0;  // timestamp of last heartbeat/update
+    int          mcuChannel = -1;
+    int          groupId    = 0;   // 0 = no group
+    double       lastSeen   = 0.0;
 };
 
 class TrackRegistry
@@ -46,8 +47,18 @@ public:
     /** Set a callback for when the registry changes. */
     void setChangeCallback(ChangeCallback cb) { onChange = std::move(cb); }
 
+    // Group definitions (set by Group Manager plugin)
+    struct GroupDef { int id = 0; juce::String name; };
+
+    void setGroups(const std::vector<GroupDef>& groups);
+    std::vector<GroupDef> getGroups() const;
+
 private:
     mutable std::mutex mutex;
     std::map<juce::String, TrackInfo> tracks;  // keyed by track_uuid
+
+    mutable std::mutex groupMutex;
+    std::vector<GroupDef> groupDefs;
+
     ChangeCallback onChange;
 };

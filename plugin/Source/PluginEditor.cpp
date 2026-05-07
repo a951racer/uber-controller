@@ -6,16 +6,13 @@ static const juce::StringArray kTrackTypes = { "Audio", "Instrument", "Bus", "FX
 UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     : AudioProcessorEditor(p), processor(p)
 {
-    // Title
     addAndMakeVisible(titleLabel);
     titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
     titleLabel.setJustificationType(juce::Justification::centred);
 
-    // Status
     addAndMakeVisible(statusLabel);
     statusLabel.setFont(juce::Font(12.0f));
 
-    // UUID
     addAndMakeVisible(uuidLabel);
     uuidLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
     uuidLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
@@ -42,10 +39,8 @@ UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     addAndMakeVisible(trackTypeCombo);
     for (int i = 0; i < kTrackTypes.size(); ++i)
         trackTypeCombo.addItem(kTrackTypes[i], i + 1);
-
     int typeIdx = kTrackTypes.indexOf(processor.getTrackType());
     trackTypeCombo.setSelectedId(typeIdx >= 0 ? typeIdx + 1 : 1, juce::dontSendNotification);
-
     trackTypeCombo.onChange = [this]
     {
         juce::String newType = trackTypeCombo.getText();
@@ -57,12 +52,10 @@ UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     addAndMakeVisible(mcuChannelLabel);
     addAndMakeVisible(mcuChannelCombo);
     mcuChannelCombo.addItem("Auto / None", 1);
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 24; ++i)
         mcuChannelCombo.addItem(juce::String("Ch ") + juce::String(i + 1), i + 2);
-
     int currentCh = processor.getMcuChannel();
     mcuChannelCombo.setSelectedId(currentCh >= 0 ? currentCh + 2 : 1, juce::dontSendNotification);
-
     mcuChannelCombo.onChange = [this]
     {
         int sel = mcuChannelCombo.getSelectedId();
@@ -70,8 +63,20 @@ UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
         processor.setMcuChannel(ch);
     };
 
+    // Group
+    addAndMakeVisible(groupLabel);
+    addAndMakeVisible(groupCombo);
+    groupCombo.addItem("(none)", 1);
+    groupCombo.setSelectedId(1, juce::dontSendNotification);
+    groupCombo.onChange = [this]
+    {
+        int sel = groupCombo.getSelectedId();
+        int gid = (sel <= 1) ? 0 : sel - 1;  // item ID 2 = group ID 1, etc.
+        processor.setGroupId(gid);
+    };
+
     startTimerHz(2);
-    setSize(300, 210);
+    setSize(300, 240);
 }
 
 UberChannelAgentEditor::~UberChannelAgentEditor()
@@ -106,6 +111,11 @@ void UberChannelAgentEditor::resized()
     auto chRow = bounds.removeFromTop(24);
     mcuChannelLabel.setBounds(chRow.removeFromLeft(80));
     mcuChannelCombo.setBounds(chRow.removeFromLeft(100));
+    bounds.removeFromTop(6);
+
+    auto groupRow = bounds.removeFromTop(24);
+    groupLabel.setBounds(groupRow.removeFromLeft(80));
+    groupCombo.setBounds(groupRow.removeFromLeft(150));
 }
 
 void UberChannelAgentEditor::timerCallback()
@@ -122,4 +132,31 @@ void UberChannelAgentEditor::timerCallback()
     }
 
     uuidLabel.setText("UUID: " + processor.getTrackUuid(), juce::dontSendNotification);
+
+    refreshGroupCombo();
+}
+
+void UberChannelAgentEditor::refreshGroupCombo()
+{
+    auto groups = processor.getAvailableGroups();
+    if (groups == lastKnownGroups) return;
+    lastKnownGroups = groups;
+
+    int currentGroupId = processor.getGroupId();
+    groupCombo.clear(juce::dontSendNotification);
+    groupCombo.addItem("(none)", 1);
+
+    for (auto& g : groups)
+    {
+        juce::String label = g.name.isEmpty()
+                                 ? ("Group " + juce::String(g.id))
+                                 : g.name;
+        groupCombo.addItem(label, g.id + 1);  // item ID = group ID + 1
+    }
+
+    // Restore selection
+    if (currentGroupId > 0)
+        groupCombo.setSelectedId(currentGroupId + 1, juce::dontSendNotification);
+    else
+        groupCombo.setSelectedId(1, juce::dontSendNotification);
 }

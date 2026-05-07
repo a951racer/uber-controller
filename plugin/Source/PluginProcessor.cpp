@@ -7,15 +7,17 @@ UberChannelAgentProcessor::UberChannelAgentProcessor()
                      .withInput("Input", juce::AudioChannelSet::stereo(), true)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // Generate stable IDs
     pluginInstanceId = generateUuid();
     trackUuid        = generateUuid();
 
-    // Initialize reporter with current info before starting
-    reporter.setTrackInfo(trackUuid, pluginInstanceId,
-                          currentTrackName, trackType, mcuChannel);
+    reporter.setGroupListCallback([this](const std::vector<GroupInfo>& groups)
+    {
+        std::lock_guard<std::mutex> lock(groupsMutex);
+        availableGroups = groups;
+    });
 
-    // Start reporter
+    reporter.setTrackInfo(trackUuid, pluginInstanceId,
+                          currentTrackName, trackType, mcuChannel, groupId);
     reporter.start(middlewareHost, middlewarePort);
 }
 
@@ -24,25 +26,40 @@ UberChannelAgentProcessor::~UberChannelAgentProcessor()
     reporter.stop();
 }
 
-void UberChannelAgentProcessor::setMcuChannel(int ch)
+void UberChannelAgentProcessor::sendUpdate()
 {
-    mcuChannel = ch;
     reporter.setTrackInfo(trackUuid, pluginInstanceId,
-                          currentTrackName, trackType, mcuChannel);
+                          currentTrackName, trackType, mcuChannel, groupId);
 }
 
 void UberChannelAgentProcessor::setTrackName(const juce::String& name)
 {
     currentTrackName = name;
-    reporter.setTrackInfo(trackUuid, pluginInstanceId,
-                          currentTrackName, trackType, mcuChannel);
+    sendUpdate();
 }
 
 void UberChannelAgentProcessor::setTrackType(const juce::String& type)
 {
     trackType = type;
-    reporter.setTrackInfo(trackUuid, pluginInstanceId,
-                          currentTrackName, trackType, mcuChannel);
+    sendUpdate();
+}
+
+void UberChannelAgentProcessor::setMcuChannel(int ch)
+{
+    mcuChannel = ch;
+    sendUpdate();
+}
+
+void UberChannelAgentProcessor::setGroupId(int id)
+{
+    groupId = id;
+    sendUpdate();
+}
+
+std::vector<GroupInfo> UberChannelAgentProcessor::getAvailableGroups() const
+{
+    std::lock_guard<std::mutex> lock(groupsMutex);
+    return availableGroups;
 }
 
 juce::String UberChannelAgentProcessor::generateUuid()
@@ -58,6 +75,7 @@ void UberChannelAgentProcessor::getStateInformation(juce::MemoryBlock& destData)
     obj->setProperty("track_name", currentTrackName);
     obj->setProperty("track_type", trackType);
     obj->setProperty("mcu_channel", mcuChannel);
+    obj->setProperty("group_id", groupId);
     obj->setProperty("middleware_host", middlewareHost);
     obj->setProperty("middleware_port", middlewarePort);
 
@@ -69,41 +87,38 @@ void UberChannelAgentProcessor::setStateInformation(const void* data, int sizeIn
 {
     juce::String json = juce::String::fromUTF8(static_cast<const char*>(data), sizeInBytes);
     auto parsed = juce::JSON::parse(json);
+    auto* obj = parsed.getDynamicObject();
+    if (!obj) return;
 
-    if (auto* obj = parsed.getDynamicObject())
+    if (obj->hasProperty("track_uuid"))
+        trackUuid = obj->getProperty("track_uuid").toString();
+    if (obj->hasProperty("plugin_instance"))
+        pluginInstanceId = obj->getProperty("plugin_instance").toString();
+    if (obj->hasProperty("track_name"))
+        currentTrackName = obj->getProperty("track_name").toString();
+    if (obj->hasProperty("track_type"))
+        trackType = obj->getProperty("track_type").toString();
+    if (obj->hasProperty("mcu_channel"))
+        mcuChannel = static_cast<int>(obj->getProperty("mcu_channel"));
+    if (obj->hasProperty("group_id"))
+        groupId = static_cast<int>(obj->getProperty("group_id"));
+
+    juce::String newHost = middlewareHost;
+    int newPort = middlewarePort;
+    if (obj->hasProperty("middleware_host"))
+        newHost = obj->getProperty("middleware_host").toString();
+    if (obj->hasProperty("middleware_port"))
+        newPort = static_cast<int>(obj->getProperty("middleware_port"));
+
+    if (newHost != middlewareHost || newPort != middlewarePort)
     {
-        if (obj->hasProperty("track_uuid"))
-            trackUuid = obj->getProperty("track_uuid").toString();
-        if (obj->hasProperty("plugin_instance"))
-            pluginInstanceId = obj->getProperty("plugin_instance").toString();
-        if (obj->hasProperty("track_name"))
-            currentTrackName = obj->getProperty("track_name").toString();
-        if (obj->hasProperty("track_type"))
-            trackType = obj->getProperty("track_type").toString();
-        if (obj->hasProperty("mcu_channel"))
-            mcuChannel = static_cast<int>(obj->getProperty("mcu_channel"));
-
-        juce::String newHost = middlewareHost;
-        int newPort = middlewarePort;
-
-        if (obj->hasProperty("middleware_host"))
-            newHost = obj->getProperty("middleware_host").toString();
-        if (obj->hasProperty("middleware_port"))
-            newPort = static_cast<int>(obj->getProperty("middleware_port"));
-
-        // Only restart reporter if host/port changed
-        if (newHost != middlewareHost || newPort != middlewarePort)
-        {
-            middlewareHost = newHost;
-            middlewarePort = newPort;
-            reporter.stop();
-            reporter.start(middlewareHost, middlewarePort);
-        }
+        middlewareHost = newHost;
+        middlewarePort = newPort;
+        reporter.stop();
+        reporter.start(middlewareHost, middlewarePort);
     }
 
-    // Update reporter with restored state (only sends if values differ from what was set in constructor)
-    reporter.setTrackInfo(trackUuid, pluginInstanceId,
-                          currentTrackName, trackType, mcuChannel);
+    sendUpdate();
 }
 
 juce::AudioProcessorEditor* UberChannelAgentProcessor::createEditor()

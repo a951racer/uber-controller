@@ -66,6 +66,31 @@ void MiddlewareApp::onDawMessage(const Sim::Message& msg)
 void MiddlewareApp::onTrackRegistryChanged()
 {
     broadcastTrackMeta();
+    broadcastTrackAssignments();
+}
+
+void MiddlewareApp::broadcastTrackAssignments()
+{
+    // Send track assignments to all plugin clients (Group Manager uses this for the matrix)
+    auto tracks = trackRegistry.getAllTracks();
+
+    auto* tObj = new juce::DynamicObject();
+    tObj->setProperty("cmd", "trackAssignments");
+    juce::Array<juce::var> trackArr;
+    for (auto& t : tracks)
+    {
+        auto* ti = new juce::DynamicObject();
+        ti->setProperty("track_uuid", t.trackUuid);
+        ti->setProperty("name", t.name);
+        ti->setProperty("mcu_channel", t.mcuChannel);
+        ti->setProperty("group_id", t.groupId);
+        trackArr.add(juce::var(ti));
+    }
+    tObj->setProperty("tracks", trackArr);
+
+    std::string json = juce::JSON::toString(juce::var(tObj), true)
+                           .removeCharacters("\r\n").toStdString() + "\n";
+    pluginServer.broadcastJson(json);
 }
 
 void MiddlewareApp::broadcastTrackMeta()
