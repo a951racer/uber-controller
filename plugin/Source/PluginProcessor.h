@@ -40,10 +40,9 @@ public:
     int getMcuChannel() const { return mcuChannel; }
     int getGroupId() const { return groupId; }
 
-    // Available groups (received from middleware)
     std::vector<GroupInfo> getAvailableGroups() const;
 
-    // Setters (called by editor)
+    // Setters
     void setTrackName(const juce::String& name);
     void setTrackType(const juce::String& type);
     void setMcuChannel(int ch);
@@ -60,9 +59,8 @@ private:
     juce::String currentTrackName;
     juce::String trackType { "Audio" };
     int          mcuChannel = -1;
-    int          groupId    = 0;  // 0 = no group
+    int          groupId    = 0;
 
-    // Groups received from middleware
     mutable std::mutex groupsMutex;
     std::vector<GroupInfo> availableGroups;
 

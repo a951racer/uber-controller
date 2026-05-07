@@ -28,8 +28,12 @@ private:
     void broadcastTrackAssignments();
 
     MidiEngine    midiEngine;
-    TcpServer     tcpServer;       // for simulator/hardware (binary protocol)
+    TcpServer     tcpServer;
     SerialServer  serialServer;
-    PluginServer  pluginServer;    // for DAW plugins (JSON protocol)
+    PluginServer  pluginServer;
     TrackRegistry trackRegistry;
+
+    // LCD buffer (captured from DAW, may be useful for future features)
+    char lcdBuffer[336] = {};
+    int  totalChannels  = 24;
 };
