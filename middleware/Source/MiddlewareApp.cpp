@@ -7,12 +7,15 @@
 MiddlewareApp::MiddlewareApp()
     : pluginServer(trackRegistry)
 {
+    std::memset(lcdBuffer, ' ', sizeof(lcdBuffer));
 }
 
 MiddlewareApp::~MiddlewareApp() { stop(); }
 
 void MiddlewareApp::start(const Config& cfg)
 {
+    totalChannels = cfg.totalChannels();
+
     // --- MIDI (multi-unit) ---
     midiEngine.setDawCallback([this](const Sim::Message& msg) { onDawMessage(msg); });
     midiEngine.init(cfg.mcuUnits);
@@ -58,6 +61,14 @@ void MiddlewareApp::onClientMessage(const Sim::Message& msg)
 
 void MiddlewareApp::onDawMessage(const Sim::Message& msg)
 {
+    // Capture LCD data for auto-correlation
+    if (msg.type == Sim::MsgType::LcdUpdate)
+    {
+        int offset = msg.lcdOffset;
+        for (int i = 0; i < msg.lcdLength && (offset + i) < (int)sizeof(lcdBuffer); ++i)
+            lcdBuffer[offset + i] = msg.lcdText[i];
+    }
+
     tcpServer.broadcast(msg);
     if (serialServer.isConnected())
         serialServer.send(msg);
