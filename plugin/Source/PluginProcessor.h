@@ -1,11 +1,15 @@
 // PluginProcessor.h
-// Uber Channel Agent — a utility plugin inserted on DAW channels to report
-// metadata to the middleware. No audio processing.
+// Uber Channel Agent — reads/writes DAW mixer state via PSL extensions,
+// reports to middleware via TCP.
 #pragma once
 #include <JuceHeader.h>
 #include "ChannelReporter.h"
+#include "PslContextBridge.h"
+#include "MeterSender.h"
+#include "pluginterfaces/base/funknown.h"
 
-class UberChannelAgentProcessor : public juce::AudioProcessor
+class UberChannelAgentProcessor : public juce::AudioProcessor,
+                                   public juce::VST3ClientExtensions
 {
 public:
     UberChannelAgentProcessor();
@@ -13,7 +17,7 @@ public:
 
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -32,38 +36,49 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // VST3ClientExtensions overrides
+    void setIComponentHandler(Steinberg::FUnknown* handler) override;
+    int32_t queryIEditController(const Steinberg::TUID iid, void** obj) override;
+
     // Accessors
     ChannelReporter& getReporter() { return reporter; }
-    juce::String getTrackName() const { return currentTrackName; }
-    juce::String getTrackType() const { return trackType; }
+    PslContextBridge& getPslBridge() { return pslBridge; }
+    ChannelMixerState getMixerState() const { return pslBridge.getState(); }
+
     juce::String getTrackUuid() const { return trackUuid; }
-    int getMcuChannel() const { return mcuChannel; }
     int getGroupId() const { return groupId; }
 
     std::vector<GroupInfo> getAvailableGroups() const;
 
-    // Setters
-    void setTrackName(const juce::String& name);
-    void setTrackType(const juce::String& type);
-    void setMcuChannel(int ch);
+    // Setters (for values not auto-detected by PSL)
     void setGroupId(int id);
+
+    // Write mixer state to DAW (called by middleware commands)
+    void setVolume(double normValue);
+    void setPan(double value);
+    void setMute(bool muted);
+    void setSolo(bool soloed);
+    void setSelected(bool selected);
 
 private:
     juce::String generateUuid();
-    void sendUpdate();
+    void onMixerStateChanged(const ChannelMixerState& state);
+    void sendFullState();
 
-    ChannelReporter reporter;
+    ChannelReporter  reporter;
+    PslContextBridge pslBridge;
+    MeterSender      meterSender;
 
     juce::String trackUuid;
     juce::String pluginInstanceId;
-    juce::String currentTrackName;
-    juce::String trackType { "Audio" };
-    int          mcuChannel = -1;
-    int          groupId    = 0;
+    int          groupId = 0;
 
     mutable std::mutex groupsMutex;
     std::vector<GroupInfo> availableGroups;
 
     juce::String middlewareHost { "127.0.0.1" };
     int          middlewarePort = 9001;
+
+    int meterBlockCounter = 0;
+    static constexpr int kMeterSendInterval = 3;  // send every N processBlock calls
 };

@@ -1,7 +1,7 @@
 // PluginServer.h
-// TCP server that accepts connections from DAW channel agent plugins.
-// Parses newline-delimited JSON and updates the TrackRegistry.
-// Uses raw Winsock/POSIX sockets to avoid JUCE socket quirks.
+// TCP server for DAW channel agent plugins.
+// Tracks which client socket corresponds to which channel index.
+// Routes commands from the middleware to specific plugins by channel.
 #pragma once
 #include <JuceHeader.h>
 #include "TrackRegistry.h"
@@ -11,6 +11,8 @@
 #include <thread>
 #include <atomic>
 #include <string>
+#include <map>
+#include <algorithm>
 
 #if JUCE_WINDOWS
   #include <winsock2.h>
@@ -21,7 +23,6 @@
   #include <sys/socket.h>
   #include <netinet/in.h>
   #include <unistd.h>
-  #include <fcntl.h>
   using SocketHandle = int;
   #define INVALID_SOCK (-1)
 #endif
@@ -29,19 +30,25 @@
 class PluginServer
 {
 public:
+    using ChannelStateCallback = std::function<void(const TrackInfo&)>;
+
     PluginServer(TrackRegistry& registry);
     ~PluginServer();
 
     bool start(int port);
     void stop();
 
-    /** Broadcast a JSON message to all connected plugin clients. */
+    bool sendToChannel(int channelIndex, const std::string& json);
     void broadcastJson(const std::string& json);
+
+    /** Called when a plugin reports channel state — middleware uses this to update the simulator. */
+    void setChannelStateCallback(ChannelStateCallback cb) { onChannelState = std::move(cb); }
 
 private:
     void acceptLoop();
     void clientLoop(SocketHandle clientSock);
-    void processLine(const std::string& line, std::string& lastTrackUuid, SocketHandle clientSock);
+    void processLine(const std::string& line, std::string& lastTrackUuid,
+                     SocketHandle clientSock, int& clientChannelIndex);
 
     TrackRegistry& registry;
     int listenPort = 9001;
@@ -52,7 +59,10 @@ private:
     std::thread acceptThread;
     std::vector<std::thread> clientThreads;
 
-    // Track connected client sockets for broadcasting
+    // Map channel index → socket for targeted sends
     std::mutex clientMutex;
-    std::vector<SocketHandle> connectedClients;
+    std::map<int, SocketHandle> channelToSocket;
+    std::vector<SocketHandle> allClients;
+
+    ChannelStateCallback onChannelState;
 };

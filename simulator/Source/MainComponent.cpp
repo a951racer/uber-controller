@@ -1,5 +1,6 @@
 // MainComponent.cpp
 #include "MainComponent.h"
+#include <cmath>
 
 static constexpr int kTransportH    = 44;
 static constexpr int kStatusH       = 24;
@@ -263,10 +264,13 @@ void MainComponent::handleServerMessage(const Sim::Message& msg)
 
         case Sim::MsgType::LcdUpdate:
         {
-            int offset = msg.lcdOffset;
-            for (int i = 0; i < msg.lcdLength && (offset + i) < (int)sizeof(lcdBuffer); ++i)
-                lcdBuffer[offset + i] = msg.lcdText[i];
-            updateLcdFromBuffer(offset, msg.lcdLength);
+            // Middleware sends dB text with lcdOffset = channel index
+            int ch = msg.lcdOffset;
+            if (ch >= 0 && ch < kTotalChannels)
+            {
+                juce::String text(msg.lcdText, msg.lcdLength);
+                strips[ch]->setLcdText(1, text);
+            }
             break;
         }
 
@@ -283,6 +287,18 @@ void MainComponent::handleServerMessage(const Sim::Message& msg)
 
                 applyFilter();
                 layoutStrips();
+            }
+            break;
+        }
+
+        case Sim::MsgType::MeterUpdate:
+        {
+            int ch = msg.meterChannel;
+            if (ch >= 0 && ch < kTotalChannels)
+            {
+                float normL = static_cast<float>(msg.meterPeakL) / 16383.0f;
+                float normR = static_cast<float>(msg.meterPeakR) / 16383.0f;
+                strips[ch]->setMeterLevels(normL, normR);
             }
             break;
         }

@@ -1,8 +1,6 @@
 // PluginEditor.cpp
 #include "PluginEditor.h"
 
-static const juce::StringArray kTrackTypes = { "Audio", "Instrument", "Bus", "FX", "VCA", "Master" };
-
 UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     : AudioProcessorEditor(p), processor(p)
 {
@@ -11,57 +9,14 @@ UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     titleLabel.setJustificationType(juce::Justification::centred);
 
     addAndMakeVisible(statusLabel);
-    statusLabel.setFont(juce::Font(12.0f));
+    statusLabel.setFont(juce::Font(11.0f));
 
-    addAndMakeVisible(uuidLabel);
-    uuidLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
-    uuidLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    addAndMakeVisible(pslLabel);
+    pslLabel.setFont(juce::Font(11.0f));
 
-    // Track name
-    addAndMakeVisible(trackNameLabel);
-    addAndMakeVisible(trackNameEditor);
-    trackNameEditor.setText(processor.getTrackName(), false);
-    trackNameEditor.onReturnKey = [this]
-    {
-        juce::String newName = trackNameEditor.getText();
-        if (newName != processor.getTrackName())
-            processor.setTrackName(newName);
-    };
-    trackNameEditor.onFocusLost = [this]
-    {
-        juce::String newName = trackNameEditor.getText();
-        if (newName != processor.getTrackName())
-            processor.setTrackName(newName);
-    };
-
-    // Track type
-    addAndMakeVisible(trackTypeLabel);
-    addAndMakeVisible(trackTypeCombo);
-    for (int i = 0; i < kTrackTypes.size(); ++i)
-        trackTypeCombo.addItem(kTrackTypes[i], i + 1);
-    int typeIdx = kTrackTypes.indexOf(processor.getTrackType());
-    trackTypeCombo.setSelectedId(typeIdx >= 0 ? typeIdx + 1 : 1, juce::dontSendNotification);
-    trackTypeCombo.onChange = [this]
-    {
-        juce::String newType = trackTypeCombo.getText();
-        if (newType != processor.getTrackType())
-            processor.setTrackType(newType);
-    };
-
-    // MCU Channel
-    addAndMakeVisible(mcuChannelLabel);
-    addAndMakeVisible(mcuChannelCombo);
-    mcuChannelCombo.addItem("Auto / None", 1);
-    for (int i = 0; i < 24; ++i)
-        mcuChannelCombo.addItem(juce::String("Ch ") + juce::String(i + 1), i + 2);
-    int currentCh = processor.getMcuChannel();
-    mcuChannelCombo.setSelectedId(currentCh >= 0 ? currentCh + 2 : 1, juce::dontSendNotification);
-    mcuChannelCombo.onChange = [this]
-    {
-        int sel = mcuChannelCombo.getSelectedId();
-        int ch  = (sel <= 1) ? -1 : sel - 2;
-        processor.setMcuChannel(ch);
-    };
+    addAndMakeVisible(channelInfoLabel);
+    channelInfoLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+    channelInfoLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
 
     // Group
     addAndMakeVisible(groupLabel);
@@ -71,12 +26,12 @@ UberChannelAgentEditor::UberChannelAgentEditor(UberChannelAgentProcessor& p)
     groupCombo.onChange = [this]
     {
         int sel = groupCombo.getSelectedId();
-        int gid = (sel <= 1) ? 0 : sel - 1;  // item ID 2 = group ID 1, etc.
+        int gid = (sel <= 1) ? 0 : sel - 1;
         processor.setGroupId(gid);
     };
 
-    startTimerHz(2);
-    setSize(300, 240);
+    startTimerHz(4);
+    setSize(320, 220);
 }
 
 UberChannelAgentEditor::~UberChannelAgentEditor()
@@ -93,45 +48,52 @@ void UberChannelAgentEditor::resized()
 {
     auto bounds = getLocalBounds().reduced(10);
 
-    titleLabel .setBounds(bounds.removeFromTop(24));
-    statusLabel.setBounds(bounds.removeFromTop(18));
-    uuidLabel  .setBounds(bounds.removeFromTop(14));
-    bounds.removeFromTop(8);
-
-    auto nameRow = bounds.removeFromTop(24);
-    trackNameLabel.setBounds(nameRow.removeFromLeft(80));
-    trackNameEditor.setBounds(nameRow);
+    titleLabel     .setBounds(bounds.removeFromTop(24));
+    statusLabel    .setBounds(bounds.removeFromTop(16));
+    pslLabel       .setBounds(bounds.removeFromTop(16));
     bounds.removeFromTop(6);
-
-    auto typeRow = bounds.removeFromTop(24);
-    trackTypeLabel.setBounds(typeRow.removeFromLeft(80));
-    trackTypeCombo.setBounds(typeRow.removeFromLeft(120));
-    bounds.removeFromTop(6);
-
-    auto chRow = bounds.removeFromTop(24);
-    mcuChannelLabel.setBounds(chRow.removeFromLeft(80));
-    mcuChannelCombo.setBounds(chRow.removeFromLeft(100));
+    channelInfoLabel.setBounds(bounds.removeFromTop(60));
     bounds.removeFromTop(6);
 
     auto groupRow = bounds.removeFromTop(24);
-    groupLabel.setBounds(groupRow.removeFromLeft(80));
+    groupLabel.setBounds(groupRow.removeFromLeft(60));
     groupCombo.setBounds(groupRow.removeFromLeft(150));
 }
 
 void UberChannelAgentEditor::timerCallback()
 {
+    // Connection status
     if (processor.getReporter().isConnected())
     {
-        statusLabel.setText("Connected to middleware", juce::dontSendNotification);
+        statusLabel.setText("Middleware: Connected", juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
     }
     else
     {
-        statusLabel.setText("Disconnected - retrying...", juce::dontSendNotification);
+        statusLabel.setText("Middleware: Disconnected", juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
     }
 
-    uuidLabel.setText("UUID: " + processor.getTrackUuid(), juce::dontSendNotification);
+    // PSL status
+    if (processor.getPslBridge().isAvailable())
+    {
+        pslLabel.setText("PSL: active", juce::dontSendNotification);
+        pslLabel.setColour(juce::Label::textColourId, juce::Colours::green);
+    }
+    else
+    {
+        pslLabel.setText("PSL: unavailable (host doesn't support it)", juce::dontSendNotification);
+        pslLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    }
+
+    // Channel info from PSL
+    auto state = processor.getMixerState();
+    juce::String info;
+    info << "Name:    " << (state.channelName.isEmpty() ? "(unknown)" : state.channelName) << "\n";
+    info << "Index:   " << (state.channelIndex >= 0 ? juce::String(state.channelIndex + 1) : "-") << "\n";
+    info << "Volume:  " << juce::String(state.volume, 3) << "  Pan: " << juce::String(state.pan, 2) << "\n";
+    info << "Mute:    " << (state.mute ? "ON" : "off") << "  Solo: " << (state.solo ? "ON" : "off");
+    channelInfoLabel.setText(info, juce::dontSendNotification);
 
     refreshGroupCombo();
 }
@@ -151,10 +113,9 @@ void UberChannelAgentEditor::refreshGroupCombo()
         juce::String label = g.name.isEmpty()
                                  ? ("Group " + juce::String(g.id))
                                  : g.name;
-        groupCombo.addItem(label, g.id + 1);  // item ID = group ID + 1
+        groupCombo.addItem(label, g.id + 1);
     }
 
-    // Restore selection
     if (currentGroupId > 0)
         groupCombo.setSelectedId(currentGroupId + 1, juce::dontSendNotification);
     else

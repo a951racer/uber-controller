@@ -21,10 +21,19 @@ target_sources(UberChannelAgent PRIVATE
     Source/PluginEditor.cpp
     Source/ChannelReporter.h
     Source/ChannelReporter.cpp
+    Source/MeterSender.h
+    Source/MeterSender.cpp
+    Source/PslContextBridge.h
+    Source/PslContextBridge.cpp
 )
 
 target_include_directories(UberChannelAgent PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source
+)
+
+# Need access to VST3 SDK headers for PSL extensions
+target_include_directories(UberChannelAgent PRIVATE
+    D:/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK
 )
 
 target_link_libraries(UberChannelAgent PRIVATE

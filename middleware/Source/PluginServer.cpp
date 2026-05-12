@@ -1,7 +1,6 @@
 // PluginServer.cpp
 #include "PluginServer.h"
 #include <iostream>
-#include <sstream>
 #include <algorithm>
 
 #if JUCE_WINDOWS
@@ -9,7 +8,6 @@
 #endif
 
 PluginServer::PluginServer(TrackRegistry& reg) : registry(reg) {}
-
 PluginServer::~PluginServer() { stop(); }
 
 bool PluginServer::start(int port)
@@ -22,13 +20,8 @@ bool PluginServer::start(int port)
 #endif
 
     listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listenSock == INVALID_SOCK)
-    {
-        std::cout << "[Plugin] Failed to create socket" << std::endl;
-        return false;
-    }
+    if (listenSock == INVALID_SOCK) return false;
 
-    // Allow port reuse
     int opt = 1;
     setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
@@ -37,21 +30,9 @@ bool PluginServer::start(int port)
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port        = htons((u_short)port);
 
-    if (bind(listenSock, (sockaddr*)&addr, sizeof(addr)) != 0)
+    if (bind(listenSock, (sockaddr*)&addr, sizeof(addr)) != 0 ||
+        listen(listenSock, 8) != 0)
     {
-        std::cout << "[Plugin] Failed to bind on port " << port << std::endl;
-#if JUCE_WINDOWS
-        closesocket(listenSock);
-#else
-        close(listenSock);
-#endif
-        listenSock = INVALID_SOCK;
-        return false;
-    }
-
-    if (listen(listenSock, 4) != 0)
-    {
-        std::cout << "[Plugin] Failed to listen on port " << port << std::endl;
 #if JUCE_WINDOWS
         closesocket(listenSock);
 #else
@@ -63,7 +44,6 @@ bool PluginServer::start(int port)
 
     running = true;
     acceptThread = std::thread([this]() { acceptLoop(); });
-
     std::cout << "[Plugin] Listening on port " << listenPort << std::endl;
     return true;
 }
@@ -71,7 +51,6 @@ bool PluginServer::start(int port)
 void PluginServer::stop()
 {
     running = false;
-
     if (listenSock != INVALID_SOCK)
     {
 #if JUCE_WINDOWS
@@ -82,13 +61,43 @@ void PluginServer::stop()
         listenSock = INVALID_SOCK;
     }
 
-    if (acceptThread.joinable())
-        acceptThread.join();
+    if (acceptThread.joinable()) acceptThread.join();
 
-    std::lock_guard<std::mutex> lock(clientMutex);
+    // Close all client sockets
+    {
+        std::lock_guard<std::mutex> lock(clientMutex);
+        for (auto sock : allClients)
+        {
+#if JUCE_WINDOWS
+            closesocket(sock);
+#else
+            close(sock);
+#endif
+        }
+        allClients.clear();
+        channelToSocket.clear();
+    }
+
     for (auto& t : clientThreads)
         if (t.joinable()) t.join();
     clientThreads.clear();
+}
+
+bool PluginServer::sendToChannel(int channelIndex, const std::string& json)
+{
+    std::lock_guard<std::mutex> lock(clientMutex);
+    auto it = channelToSocket.find(channelIndex);
+    if (it == channelToSocket.end()) return false;
+
+    send(it->second, json.c_str(), (int)json.size(), 0);
+    return true;
+}
+
+void PluginServer::broadcastJson(const std::string& json)
+{
+    std::lock_guard<std::mutex> lock(clientMutex);
+    for (auto sock : allClients)
+        send(sock, json.c_str(), (int)json.size(), 0);
 }
 
 void PluginServer::acceptLoop()
@@ -101,9 +110,7 @@ void PluginServer::acceptLoop()
 #else
         socklen_t addrLen = sizeof(clientAddr);
 #endif
-
         SocketHandle clientSock = accept(listenSock, (sockaddr*)&clientAddr, &addrLen);
-
         if (clientSock == INVALID_SOCK)
         {
             if (!running) break;
@@ -114,7 +121,7 @@ void PluginServer::acceptLoop()
 
         {
             std::lock_guard<std::mutex> lock(clientMutex);
-            connectedClients.push_back(clientSock);
+            allClients.push_back(clientSock);
         }
 
         clientThreads.emplace_back([this, clientSock]() { clientLoop(clientSock); });
@@ -123,20 +130,18 @@ void PluginServer::acceptLoop()
 
 void PluginServer::clientLoop(SocketHandle clientSock)
 {
-    // Set receive timeout
 #if JUCE_WINDOWS
     DWORD timeout = 1000;
     setsockopt(clientSock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 #else
-    struct timeval tv;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
+    struct timeval tv = { 1, 0 };
     setsockopt(clientSock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
 
     std::string lineBuffer;
-    std::string lastTrackUuid;  // track which UUID this client registered
-    char buf[1024];
+    std::string lastTrackUuid;
+    int clientChannelIndex = -1;
+    char buf[2048];
 
     while (running)
     {
@@ -147,58 +152,42 @@ void PluginServer::clientLoop(SocketHandle clientSock)
             buf[n] = '\0';
             lineBuffer += buf;
 
-            // Process complete lines
             size_t pos;
             while ((pos = lineBuffer.find('\n')) != std::string::npos)
             {
                 std::string line = lineBuffer.substr(0, pos);
                 lineBuffer = lineBuffer.substr(pos + 1);
-
-                // Trim
                 while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
                     line.pop_back();
-
                 if (!line.empty())
-                {
-                    std::cout << "[Plugin] Received: " << line << std::endl;
-                    processLine(line, lastTrackUuid, clientSock);
-                }
+                    processLine(line, lastTrackUuid, clientSock, clientChannelIndex);
             }
         }
         else if (n == 0)
         {
-            std::cout << "[Plugin] Client disconnected (graceful)" << std::endl;
+            std::cout << "[Plugin] Client disconnected (ch " << clientChannelIndex << ")" << std::endl;
             break;
         }
         else
         {
-            // Check for timeout vs real error
 #if JUCE_WINDOWS
-            int err = WSAGetLastError();
-            if (err == WSAETIMEDOUT)
-                continue;
+            if (WSAGetLastError() == WSAETIMEDOUT) continue;
 #else
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 #endif
-            std::cout << "[Plugin] Client disconnected (error)" << std::endl;
             break;
         }
     }
 
-    // Plugin removed — deregister from the track registry
+    // Cleanup
     if (!lastTrackUuid.empty())
-    {
-        std::cout << "[Plugin] Deregistering track uuid=" << lastTrackUuid << std::endl;
         registry.removeTrack(juce::String(lastTrackUuid));
-    }
 
-    // Remove from connected clients list
     {
         std::lock_guard<std::mutex> lock(clientMutex);
-        connectedClients.erase(
-            std::remove(connectedClients.begin(), connectedClients.end(), clientSock),
-            connectedClients.end());
+        allClients.erase(std::remove(allClients.begin(), allClients.end(), clientSock), allClients.end());
+        if (clientChannelIndex >= 0)
+            channelToSocket.erase(clientChannelIndex);
     }
 
 #if JUCE_WINDOWS
@@ -208,7 +197,8 @@ void PluginServer::clientLoop(SocketHandle clientSock)
 #endif
 }
 
-void PluginServer::processLine(const std::string& line, std::string& lastTrackUuid, SocketHandle clientSock)
+void PluginServer::processLine(const std::string& line, std::string& lastTrackUuid,
+                               SocketHandle clientSock, int& clientChannelIndex)
 {
     auto parsed = juce::JSON::parse(juce::String(line));
     auto* obj = parsed.getDynamicObject();
@@ -216,26 +206,55 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
 
     juce::String cmd = obj->getProperty("cmd").toString();
 
-    if (cmd == "register" || cmd == "update")
+    if (cmd == "channelState" || cmd == "register" || cmd == "update")
     {
         TrackInfo info;
         info.trackUuid      = obj->getProperty("track_uuid").toString();
         info.pluginInstance  = obj->getProperty("plugin_instance").toString();
         info.name           = obj->getProperty("name").toString();
         info.type           = obj->getProperty("type").toString();
-        info.mcuChannel     = static_cast<int>(obj->getProperty("mcu_channel"));
         info.groupId        = static_cast<int>(obj->getProperty("group_id"));
+
+        if (obj->hasProperty("channel_index"))
+            info.mcuChannel = static_cast<int>(obj->getProperty("channel_index"));
+        else if (obj->hasProperty("mcu_channel"))
+            info.mcuChannel = static_cast<int>(obj->getProperty("mcu_channel"));
+
+        if (obj->hasProperty("volume"))
+            info.volume = static_cast<double>(obj->getProperty("volume"));
+        if (obj->hasProperty("max_volume"))
+            info.maxVolume = static_cast<double>(obj->getProperty("max_volume"));
+        if (obj->hasProperty("pan"))
+            info.pan = static_cast<double>(obj->getProperty("pan"));
+        if (obj->hasProperty("mute"))
+            info.mute = static_cast<int>(obj->getProperty("mute")) != 0;
+        if (obj->hasProperty("solo"))
+            info.solo = static_cast<int>(obj->getProperty("solo")) != 0;
+        if (obj->hasProperty("selected"))
+            info.selected = static_cast<int>(obj->getProperty("selected")) != 0;
 
         lastTrackUuid = info.trackUuid.toStdString();
 
-        registry.registerTrack(info);
+        // Register this socket for the channel index
+        if (info.mcuChannel >= 0)
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            channelToSocket[info.mcuChannel] = clientSock;
+            clientChannelIndex = info.mcuChannel;
+        }
 
-        std::cout << "[Plugin] " << cmd.toStdString() << " track=\"" << info.name.toStdString()
-                  << "\" uuid=" << info.trackUuid.toStdString()
-                  << " mcu_ch=" << info.mcuChannel
-                  << " group=" << info.groupId << std::endl;
+        // Notify middleware (it will register in the track registry and forward to simulator if changed)
+        if (onChannelState)
+            onChannelState(info);
 
-        // Send current group list to this client on first register
+        std::cout << "[Plugin] " << cmd.toStdString()
+                  << " ch=" << info.mcuChannel
+                  << " \"" << info.name.toStdString() << "\""
+                  << " vol=" << info.volume
+                  << " mute=" << info.mute
+                  << " solo=" << info.solo << std::endl;
+
+        // Send current group list to this client
         auto groups = registry.getGroups();
         if (!groups.empty())
         {
@@ -250,20 +269,20 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
                 arr.add(juce::var(item));
             }
             gObj->setProperty("groups", arr);
-
             juce::String json = juce::JSON::toString(juce::var(gObj), true).removeCharacters("\r\n") + "\n";
             auto utf8 = json.toUTF8();
-            send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
+            ::send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
         }
     }
     else if (cmd == "heartbeat")
     {
-        juce::String uuid     = obj->getProperty("track_uuid").toString();
+        juce::String uuid = obj->getProperty("track_uuid").toString();
         juce::String instance = obj->getProperty("plugin_instance").toString();
-        int mcuCh             = static_cast<int>(obj->getProperty("mcu_channel"));
-
+        int chIdx = -1;
+        if (obj->hasProperty("channel_index"))
+            chIdx = static_cast<int>(obj->getProperty("channel_index"));
         lastTrackUuid = uuid.toStdString();
-        registry.heartbeat(uuid, instance, mcuCh);
+        registry.heartbeat(uuid, instance, chIdx);
     }
     else if (cmd == "defineGroups")
     {
@@ -282,10 +301,9 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
         }
 
         registry.setGroups(groups);
+        std::cout << "[Plugin] Groups defined: " << groups.size() << std::endl;
 
-        std::cout << "[Plugin] Groups defined: " << groups.size() << " groups" << std::endl;
-
-        // Broadcast group list to all connected clients
+        // Broadcast group list to all clients
         auto* gObj = new juce::DynamicObject();
         gObj->setProperty("cmd", "groupList");
         juce::Array<juce::var> groupArr;
@@ -297,12 +315,11 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
             groupArr.add(juce::var(item));
         }
         gObj->setProperty("groups", groupArr);
-
         std::string jsonStr = juce::JSON::toString(juce::var(gObj), true)
                                   .removeCharacters("\r\n").toStdString() + "\n";
         broadcastJson(jsonStr);
 
-        // Also send track assignments to the group manager
+        // Send track assignments to group manager
         auto tracks = registry.getAllTracks();
         auto* tObj = new juce::DynamicObject();
         tObj->setProperty("cmd", "trackAssignments");
@@ -317,19 +334,9 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
             trackArr.add(juce::var(ti));
         }
         tObj->setProperty("tracks", trackArr);
-
         juce::String trackJson = juce::JSON::toString(juce::var(tObj), true)
                                      .removeCharacters("\r\n") + "\n";
         auto utf8 = trackJson.toUTF8();
-        send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
-    }
-}
-
-void PluginServer::broadcastJson(const std::string& json)
-{
-    std::lock_guard<std::mutex> lock(clientMutex);
-    for (auto sock : connectedClients)
-    {
-        send(sock, json.c_str(), (int)json.size(), 0);
+        ::send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
     }
 }
