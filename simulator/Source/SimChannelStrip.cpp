@@ -92,3 +92,8 @@ void SimChannelStrip::setPluginName(const juce::String& name)
     pluginName = name;
     repaint();
 }
+
+void SimChannelStrip::setMeterLevels(float peakL, float peakR)
+{
+    fader.setMeterLevels(peakL, peakR);
+}

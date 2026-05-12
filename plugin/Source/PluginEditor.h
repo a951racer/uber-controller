@@ -1,4 +1,5 @@
 // PluginEditor.h
+// Shows connection status, auto-detected channel info, and group assignment.
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
@@ -19,20 +20,15 @@ private:
 
     UberChannelAgentProcessor& processor;
 
-    juce::Label titleLabel       { {}, "Uber Channel Agent" };
-    juce::Label statusLabel      { {}, "Disconnected" };
-    juce::Label uuidLabel        { {}, "" };
+    juce::Label titleLabel   { {}, "Uber Channel Agent" };
+    juce::Label statusLabel  { {}, "Disconnected" };
+    juce::Label pslLabel     { {}, "PSL: unavailable" };
 
-    juce::Label trackNameLabel   { {}, "Track Name:" };
-    juce::TextEditor trackNameEditor;
+    // Auto-detected info (read-only display)
+    juce::Label channelInfoLabel { {}, "" };
 
-    juce::Label trackTypeLabel   { {}, "Type:" };
-    juce::ComboBox trackTypeCombo;
-
-    juce::Label mcuChannelLabel  { {}, "MCU Channel:" };
-    juce::ComboBox mcuChannelCombo;
-
-    juce::Label groupLabel       { {}, "Group:" };
+    // Group assignment
+    juce::Label    groupLabel { {}, "Group:" };
     juce::ComboBox groupCombo;
 
     std::vector<GroupInfo> lastKnownGroups;

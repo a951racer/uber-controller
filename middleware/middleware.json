@@ -1,8 +1,6 @@
 {
     "mcuUnits": [
-        { "midiIn": "MCU_In",  "midiOut": "MCU_Out"  },
-        { "midiIn": "MCU_In2", "midiOut": "MCU_Out2" },
-        { "midiIn": "MCU_In3", "midiOut": "MCU_Out3" }
+        { "midiIn": "MCU_1_In", "midiOut": "MCU_1_Out" }
     ],
     "tcpPort": 8888,
     "serialPort": "",

@@ -17,6 +17,8 @@ target_sources(McuMiddleware PRIVATE
     Source/SerialServer.cpp
     Source/PluginServer.h
     Source/PluginServer.cpp
+    Source/MeterReceiver.h
+    Source/MeterReceiver.cpp
     Source/TrackRegistry.h
     Source/TrackRegistry.cpp
     Source/ClientConnection.h

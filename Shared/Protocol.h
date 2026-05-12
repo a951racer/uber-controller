@@ -37,6 +37,7 @@ static constexpr uint8_t kVPotRing    = 0x07;
 static constexpr uint8_t kLcdUpdate   = 0x08;
 static constexpr uint8_t kRawSysEx    = 0x09;
 static constexpr uint8_t kTrackMeta   = 0x0A;
+static constexpr uint8_t kMeterUpdate = 0x0B;
 
 // ---------------------------------------------------------------------------
 // Encoding
@@ -98,7 +99,16 @@ inline std::vector<uint8_t> encode(const Sim::Message& msg)
             type = kVPotTurn;
             payload[0] = static_cast<uint8_t>(msg.vpotId);
             payload[1] = static_cast<uint8_t>(static_cast<int8_t>(msg.vpotDelta));
-            payLen = 2;
+            if (msg.vpotDelta == 0)
+            {
+                // Absolute mode: encode value as 14-bit
+                encodeValue(msg.value, payload[2], payload[3]);
+                payLen = 4;
+            }
+            else
+            {
+                payLen = 2;
+            }
             break;
 
         case Sim::MsgType::VPotRingUpdate:
@@ -150,6 +160,18 @@ inline std::vector<uint8_t> encode(const Sim::Message& msg)
                 payload[idx++] = static_cast<uint8_t>(msg.trackType[i]);
 
             payLen = static_cast<uint8_t>(idx);
+            break;
+        }
+
+        case Sim::MsgType::MeterUpdate:
+        {
+            type = kMeterUpdate;
+            payload[0] = static_cast<uint8_t>(msg.meterChannel);
+            payload[1] = static_cast<uint8_t>((msg.meterPeakL >> 7) & 0x7F);
+            payload[2] = static_cast<uint8_t>(msg.meterPeakL & 0x7F);
+            payload[3] = static_cast<uint8_t>((msg.meterPeakR >> 7) & 0x7F);
+            payload[4] = static_cast<uint8_t>(msg.meterPeakR & 0x7F);
+            payLen = 5;
             break;
         }
 
@@ -293,9 +315,14 @@ private:
 
             case kVPotTurn:
                 if (payLen < 2) return;
-                msg.type     = Sim::MsgType::VPotTurn;
-                msg.vpotId   = payload[0];
+                msg.type      = Sim::MsgType::VPotTurn;
+                msg.vpotId    = payload[0];
                 msg.vpotDelta = static_cast<int>(static_cast<int8_t>(payload[1]));
+                if (msg.vpotDelta == 0 && payLen >= 4)
+                {
+                    // Absolute mode: decode 14-bit value
+                    msg.value = decodeValue(2, 3);
+                }
                 break;
 
             case kVPotRing:
@@ -347,6 +374,16 @@ private:
                         msg.trackType[i] = static_cast<char>(payload[idx++]);
                     msg.trackType[typeLen] = '\0';
                 }
+                break;
+            }
+
+            case kMeterUpdate:
+            {
+                if (payLen < 5) return;
+                msg.type         = Sim::MsgType::MeterUpdate;
+                msg.meterChannel = payload[0];
+                msg.meterPeakL   = ((payload[1] & 0x7F) << 7) | (payload[2] & 0x7F);
+                msg.meterPeakR   = ((payload[3] & 0x7F) << 7) | (payload[4] & 0x7F);
                 break;
             }
 

@@ -17,9 +17,13 @@ void SimVPot::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff202020));
     g.fillEllipse(cx - radius, cy - radius, radius * 2, radius * 2);
 
-    // LED ring: 11 positions spanning 240 degrees (from -120 to +120)
+    // LED ring: 11 positions spanning 240 degrees
     float startAngle = -120.0f;
     float totalArc   = 240.0f;
+
+    // Use position to determine which LEDs are lit
+    int posIdx = static_cast<int>(position * 10.0f + 0.5f);
+    posIdx = juce::jlimit(0, 10, posIdx);
 
     for (int i = 0; i <= 10; ++i)
     {
@@ -31,22 +35,20 @@ void SimVPot::paint(juce::Graphics& g)
         float dy   = cy - dotR * std::cos(rad);
 
         bool lit = false;
-
         switch (ringMode)
         {
             case Sim::VPotMode::Single:
-                lit = (i == ringPosition);
+                lit = (i == posIdx);
                 break;
             case Sim::VPotMode::BoostCut:
-                // Fill from center (position 5) to ringPosition
-                lit = (ringPosition >= 5) ? (i >= 5 && i <= ringPosition)
-                                          : (i <= 5 && i >= ringPosition);
+                lit = (posIdx >= 5) ? (i >= 5 && i <= posIdx)
+                                    : (i <= 5 && i >= posIdx);
                 break;
             case Sim::VPotMode::Wrap:
-                lit = (i <= ringPosition);
+                lit = (i <= posIdx);
                 break;
             case Sim::VPotMode::Spread:
-                lit = (i >= 5 - ringPosition && i <= 5 + ringPosition);
+                lit = (i >= 5 - posIdx && i <= 5 + posIdx);
                 break;
         }
 
@@ -63,6 +65,7 @@ void SimVPot::paint(juce::Graphics& g)
 void SimVPot::mouseDown(const juce::MouseEvent& e)
 {
     lastDragY = (int)e.position.y;
+    dragging = true;
 }
 
 void SimVPot::mouseDrag(const juce::MouseEvent& e)
@@ -70,20 +73,42 @@ void SimVPot::mouseDrag(const juce::MouseEvent& e)
     int dy = lastDragY - (int)e.position.y;  // up = positive
     lastDragY = (int)e.position.y;
 
-    // Every 4 pixels of drag = 1 tick
-    int ticks = dy / 4;
-    if (ticks == 0) return;
+    float delta = dy * 0.005f;
+    position = juce::jlimit(0.0f, 1.0f, position + delta);
 
     Sim::Message m;
     m.type      = Sim::MsgType::VPotTurn;
     m.vpotId    = vpotId;
-    m.vpotDelta = ticks;
+    m.vpotDelta = 0;        // 0 signals absolute mode
+    m.value     = position;
+
     bus.publish(m);
+    repaint();
 }
 
-void SimVPot::setRing(Sim::VPotMode mode, int position)
+void SimVPot::mouseUp(const juce::MouseEvent&)
+{
+    dragging = false;
+}
+
+void SimVPot::setRing(Sim::VPotMode mode, int pos)
 {
     ringMode     = mode;
-    ringPosition = juce::jlimit(0, 11, position);
-    repaint();
+    ringPosition = juce::jlimit(0, 11, pos);
+
+    // Only update position from external source if not currently dragging
+    if (!dragging)
+    {
+        position = static_cast<float>(pos) / 10.0f;
+        repaint();
+    }
+}
+
+void SimVPot::setPosition(float pos)
+{
+    if (!dragging)
+    {
+        position = juce::jlimit(0.0f, 1.0f, pos);
+        repaint();
+    }
 }

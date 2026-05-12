@@ -20,6 +20,7 @@ public:
     void setButtonLed(int noteNumber, bool on);
     void setLcdText(int row, const juce::String& text);
     void setPluginName(const juce::String& name);
+    void setMeterLevels(float peakL, float peakR);
 
     int getChannelId() const { return channelId; }
 
@@ -91,4 +92,8 @@ private:
 
     // Plugin-provided name (overrides lcdRow1 when set)
     juce::String pluginName;
+
+    // Meter levels (0.0-1.0 normalized)
+    float meterL = 0.0f;
+    float meterR = 0.0f;
 };

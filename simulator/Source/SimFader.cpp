@@ -12,11 +12,27 @@ void SimFader::paint(juce::Graphics& g)
 
     g.fillAll(juce::Colours::darkgrey);
 
-    int faderY = (int)((1.0f - value) * r.getHeight());
+    // Meter bars (behind the fader knob)
+    if (meterL > 0.0f || meterR > 0.0f)
+    {
+        int meterW = 4;
+        int h = r.getHeight();
 
+        int lH = static_cast<int>(meterL * h);
+        g.setColour(meterL > 0.91f ? juce::Colours::red : juce::Colour(0xff00aa44));
+        g.fillRect(0, h - lH, meterW, lH);
+
+        int rH = static_cast<int>(meterR * h);
+        g.setColour(meterR > 0.91f ? juce::Colours::red : juce::Colour(0xff00aa44));
+        g.fillRect(r.getWidth() - meterW, h - rH, meterW, rH);
+    }
+
+    // Fader knob
+    int faderY = (int)((1.0f - value) * r.getHeight());
     g.setColour(juce::Colours::white);
     g.fillRect(r.withTop(faderY).withHeight(6));
 
+    // Channel number
     g.setColour(juce::Colours::black);
     g.drawText(juce::String(faderId + 1), r, juce::Justification::centredBottom);
 }
@@ -58,6 +74,13 @@ void SimFader::mouseUp(const juce::MouseEvent&)
 void SimFader::setValue(float v)
 {
     value = juce::jlimit(0.0f, 1.0f, v);
+    repaint();
+}
+
+void SimFader::setMeterLevels(float l, float r)
+{
+    meterL = juce::jlimit(0.0f, 1.0f, l);
+    meterR = juce::jlimit(0.0f, 1.0f, r);
     repaint();
 }
 

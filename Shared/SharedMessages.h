@@ -19,6 +19,7 @@ enum class MsgType
     LcdUpdate,        // middleware -> controller: DAW sent LCD text
     RawSysEx,         // middleware -> controller: raw SysEx for debug display
     TrackMeta,        // middleware -> controller: track metadata from plugin
+    MeterUpdate,      // middleware -> controller: channel meter levels
     MidiDeviceChange  // (internal, not sent over wire)
 };
 
@@ -91,6 +92,11 @@ struct Message
     char trackName[32]   = {};
     char trackType[16]   = {};
     char trackUuid[40]   = {};
+
+    // Meter levels (0-16383, 14-bit)
+    int meterChannel = -1;
+    int meterPeakL   = 0;
+    int meterPeakR   = 0;
 
     // Internal
     std::string midiDeviceName;

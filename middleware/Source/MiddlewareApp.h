@@ -1,11 +1,12 @@
 // MiddlewareApp.h
-// Wires MidiEngine, TcpServer, SerialServer, PluginServer, and TrackRegistry together.
+// Routes data between simulator/hardware, DAW plugins, and MCU (transport only).
 #pragma once
 #include <JuceHeader.h>
 #include "MidiEngine.h"
 #include "TcpServer.h"
 #include "SerialServer.h"
 #include "PluginServer.h"
+#include "MeterReceiver.h"
 #include "TrackRegistry.h"
 #include "Config.h"
 
@@ -21,19 +22,36 @@ public:
 private:
     void timerCallback() override;
 
+    // Simulator/hardware sends a message (fader move, button press, etc.)
     void onClientMessage(const Sim::Message& msg);
+
+    // MCU sends transport data (play/stop LED feedback)
     void onDawMessage(const Sim::Message& msg);
+
+    // Track registry changed (plugin registered/updated)
     void onTrackRegistryChanged();
+
+    // Send current mixer state for all tracks to the simulator
+    void broadcastMixerState();
+
+    // Send state for one channel
+    void sendChannelState(const TrackInfo& track);
+
+    // Send track metadata to simulator
     void broadcastTrackMeta();
+
+    // Send track assignments to group manager plugin
     void broadcastTrackAssignments();
 
-    MidiEngine    midiEngine;
-    TcpServer     tcpServer;
-    SerialServer  serialServer;
-    PluginServer  pluginServer;
+    // Route a simulator command to the correct plugin
+    void routeToPlugin(int channelIndex, const juce::String& cmd, double value);
+
+    MidiEngine    midiEngine;      // MCU — transport only
+    TcpServer     tcpServer;       // simulator/hardware (binary protocol)
+    SerialServer  serialServer;    // hardware serial (optional)
+    PluginServer  pluginServer;    // DAW plugins (JSON protocol)
+    MeterReceiver meterReceiver;   // UDP meter receiver
     TrackRegistry trackRegistry;
 
-    // LCD buffer (captured from DAW, may be useful for future features)
-    char lcdBuffer[336] = {};
-    int  totalChannels  = 24;
+    int totalChannels = 24;
 };

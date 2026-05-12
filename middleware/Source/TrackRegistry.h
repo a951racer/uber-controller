@@ -15,7 +15,13 @@ struct TrackInfo
     juce::String name;
     juce::String type;
     int          mcuChannel = -1;
-    int          groupId    = 0;   // 0 = no group
+    int          groupId    = 0;
+    double       volume     = 1.0;
+    double       maxVolume  = 3.162;  // PSL max volume (linear gain at +10dB)
+    double       pan        = 0.5;
+    bool         mute       = false;
+    bool         solo       = false;
+    bool         selected   = false;
     double       lastSeen   = 0.0;
 };
 
@@ -26,8 +32,14 @@ public:
 
     TrackRegistry();
 
-    /** Register or update a track. Returns true if something changed. */
+    /** Register or update a track. Returns true if something changed.
+        Fires onChange callback if metadata (name/type/group/channel) changed. */
     bool registerTrack(const TrackInfo& info);
+
+    /** Update only mixer state (volume/pan/mute/solo/selected) without firing onChange.
+        Returns true if something changed. Used for high-frequency updates from simulator. */
+    bool updateMixerState(const juce::String& trackUuid, double volume, double pan,
+                          bool mute, bool solo, bool selected);
 
     /** Mark a track as seen (heartbeat). */
     void heartbeat(const juce::String& trackUuid, const juce::String& pluginInstance, int mcuChannel);

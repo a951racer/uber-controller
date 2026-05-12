@@ -14,11 +14,14 @@ public:
     void mouseUp(const juce::MouseEvent&) override;
 
     void setValue(float v);
+    void setMeterLevels(float l, float r);
 
 private:
     int   faderId;
     float value   = 0.0f;
     bool  touched = false;
+    float meterL  = 0.0f;
+    float meterR  = 0.0f;
 
     Sim::MessageBus& bus;
 

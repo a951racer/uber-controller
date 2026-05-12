@@ -1,5 +1,6 @@
 // TrackRegistry.cpp
 #include "TrackRegistry.h"
+#include <cmath>
 
 TrackRegistry::TrackRegistry() {}
 
@@ -24,12 +25,22 @@ bool TrackRegistry::registerTrack(const TrackInfo& info)
             if (existing.name != info.name ||
                 existing.type != info.type ||
                 existing.mcuChannel != info.mcuChannel ||
-                existing.groupId != info.groupId)
+                existing.groupId != info.groupId ||
+                std::abs(existing.volume - info.volume) > 0.001 ||
+                std::abs(existing.pan - info.pan) > 0.005 ||
+                existing.mute != info.mute ||
+                existing.solo != info.solo ||
+                existing.selected != info.selected)
             {
                 existing.name       = info.name;
                 existing.type       = info.type;
                 existing.mcuChannel = info.mcuChannel;
                 existing.groupId    = info.groupId;
+                existing.volume     = info.volume;
+                existing.pan        = info.pan;
+                existing.mute       = info.mute;
+                existing.solo       = info.solo;
+                existing.selected   = info.selected;
                 existing.lastSeen   = juce::Time::getMillisecondCounterHiRes();
                 changed = true;
             }
@@ -149,4 +160,24 @@ std::vector<TrackRegistry::GroupDef> TrackRegistry::getGroups() const
 {
     std::lock_guard<std::mutex> lock(groupMutex);
     return groupDefs;
+}
+
+bool TrackRegistry::updateMixerState(const juce::String& trackUuid, double volume, double pan,
+                                     bool mute, bool solo, bool selected)
+{
+    std::lock_guard<std::mutex> lock(mutex);
+
+    auto it = tracks.find(trackUuid);
+    if (it == tracks.end()) return false;
+
+    auto& t = it->second;
+    bool changed = false;
+
+    if (std::abs(t.volume - volume) > 0.001) { t.volume = volume; changed = true; }
+    if (std::abs(t.pan - pan) > 0.005)       { t.pan = pan; changed = true; }
+    if (t.mute != mute)                       { t.mute = mute; changed = true; }
+    if (t.solo != solo)                       { t.solo = solo; changed = true; }
+    if (t.selected != selected)               { t.selected = selected; changed = true; }
+
+    return changed;
 }

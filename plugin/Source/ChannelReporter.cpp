@@ -28,25 +28,40 @@ void ChannelReporter::stop()
     socket.reset();
 }
 
-void ChannelReporter::setTrackInfo(const juce::String& uuid,
-                                   const juce::String& instance,
-                                   const juce::String& name,
-                                   const juce::String& type,
-                                   int channel,
-                                   int group)
+void ChannelReporter::setChannelState(const juce::String& uuid,
+                                      const juce::String& instance,
+                                      const juce::String& name,
+                                      const juce::String& type,
+                                      int index,
+                                      int group,
+                                      double vol,
+                                      double maxVol,
+                                      double p,
+                                      bool m,
+                                      bool s,
+                                      bool sel)
 {
-    std::lock_guard<std::mutex> lock(metaMutex);
+    std::lock_guard<std::mutex> lock(stateMutex);
 
     if (trackUuid != uuid || pluginInstance != instance ||
-        trackName != name || trackType != type ||
-        mcuChannel != channel || groupId != group)
+        channelName != name || channelType != type ||
+        channelIndex != index || groupId != group ||
+        std::abs(volume - vol) > 0.001 || std::abs(pan - p) > 0.005 ||
+        mute != m || solo != s || selected != sel ||
+        std::abs(maxVolume - maxVol) > 0.001)
     {
         trackUuid      = uuid;
         pluginInstance = instance;
-        trackName      = name;
-        trackType      = type;
-        mcuChannel     = channel;
+        channelName    = name;
+        channelType    = type;
+        channelIndex   = index;
         groupId        = group;
+        volume         = vol;
+        maxVolume      = maxVol;
+        pan            = p;
+        mute           = m;
+        solo           = s;
+        selected       = sel;
         needsSend      = true;
     }
 }
@@ -66,16 +81,15 @@ void ChannelReporter::run()
                     juce::Thread::sleep(100);
                 continue;
             }
-            sendRegister();
+            sendState();
             lastHeartbeatTime = juce::Time::getMillisecondCounterHiRes();
         }
 
         if (threadShouldExit()) return;
 
         if (needsSend.exchange(false))
-            sendRegister();
+            sendState();
 
-        // Heartbeat
         double now = juce::Time::getMillisecondCounterHiRes();
         if (now - lastHeartbeatTime >= kHeartbeatMs)
         {
@@ -83,7 +97,7 @@ void ChannelReporter::run()
             lastHeartbeatTime = now;
         }
 
-        // Read incoming data from middleware (group list updates)
+        // Read incoming data from middleware
         if (socket && connected)
         {
             char buf[1024];
@@ -105,7 +119,7 @@ void ChannelReporter::run()
         }
 
         if (threadShouldExit()) return;
-        juce::Thread::sleep(100);
+        juce::Thread::sleep(50);
     }
 }
 
@@ -129,34 +143,39 @@ bool ChannelReporter::tryConnect()
     return true;
 }
 
-void ChannelReporter::sendRegister()
+void ChannelReporter::sendState()
 {
-    std::lock_guard<std::mutex> lock(metaMutex);
+    std::lock_guard<std::mutex> lock(stateMutex);
 
     auto* obj = new juce::DynamicObject();
-    obj->setProperty("cmd", "register");
+    obj->setProperty("cmd", "channelState");
     obj->setProperty("plugin_type", "channel_agent");
     obj->setProperty("track_uuid", trackUuid);
     obj->setProperty("plugin_instance", pluginInstance);
-    obj->setProperty("name", trackName);
-    obj->setProperty("type", trackType);
-    obj->setProperty("mcu_channel", mcuChannel);
+    obj->setProperty("name", channelName);
+    obj->setProperty("type", channelType);
+    obj->setProperty("channel_index", channelIndex);
     obj->setProperty("group_id", groupId);
+    obj->setProperty("volume", volume);
+    obj->setProperty("max_volume", maxVolume);
+    obj->setProperty("pan", pan);
+    obj->setProperty("mute", mute);
+    obj->setProperty("solo", solo);
+    obj->setProperty("selected", selected);
 
     sendJson(juce::JSON::toString(juce::var(obj), true));
 }
 
 void ChannelReporter::sendHeartbeat()
 {
-    std::lock_guard<std::mutex> lock(metaMutex);
+    std::lock_guard<std::mutex> lock(stateMutex);
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty("cmd", "heartbeat");
     obj->setProperty("plugin_type", "channel_agent");
     obj->setProperty("track_uuid", trackUuid);
     obj->setProperty("plugin_instance", pluginInstance);
-    obj->setProperty("mcu_channel", mcuChannel);
-    obj->setProperty("group_id", groupId);
+    obj->setProperty("channel_index", channelIndex);
 
     sendJson(juce::JSON::toString(juce::var(obj), true));
 }
@@ -208,6 +227,56 @@ void ChannelReporter::processIncoming(const juce::String& line)
                 if (onGroupList)
                     onGroupList(groups);
             });
+        }
+    }
+    else if (cmd == "setVolume")
+    {
+        if (onMixerCmd)
+        {
+            MixerCommand mc;
+            mc.type  = MixerCommand::SetVolume;
+            mc.value = static_cast<double>(obj->getProperty("value"));
+            juce::MessageManager::callAsync([this, mc]() { if (onMixerCmd) onMixerCmd(mc); });
+        }
+    }
+    else if (cmd == "setPan")
+    {
+        if (onMixerCmd)
+        {
+            MixerCommand mc;
+            mc.type  = MixerCommand::SetPan;
+            mc.value = static_cast<double>(obj->getProperty("value"));
+            juce::MessageManager::callAsync([this, mc]() { if (onMixerCmd) onMixerCmd(mc); });
+        }
+    }
+    else if (cmd == "setMute")
+    {
+        if (onMixerCmd)
+        {
+            MixerCommand mc;
+            mc.type = MixerCommand::SetMute;
+            mc.flag = static_cast<int>(obj->getProperty("value")) != 0;
+            juce::MessageManager::callAsync([this, mc]() { if (onMixerCmd) onMixerCmd(mc); });
+        }
+    }
+    else if (cmd == "setSolo")
+    {
+        if (onMixerCmd)
+        {
+            MixerCommand mc;
+            mc.type = MixerCommand::SetSolo;
+            mc.flag = static_cast<int>(obj->getProperty("value")) != 0;
+            juce::MessageManager::callAsync([this, mc]() { if (onMixerCmd) onMixerCmd(mc); });
+        }
+    }
+    else if (cmd == "setSelect")
+    {
+        if (onMixerCmd)
+        {
+            MixerCommand mc;
+            mc.type = MixerCommand::SetSelect;
+            mc.flag = static_cast<int>(obj->getProperty("value")) != 0;
+            juce::MessageManager::callAsync([this, mc]() { if (onMixerCmd) onMixerCmd(mc); });
         }
     }
 }
