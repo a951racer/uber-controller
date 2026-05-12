@@ -31,6 +31,10 @@ private:
     // Track registry changed (plugin registered/updated)
     void onTrackRegistryChanged();
 
+    // VCA fader logic
+    void handleVcaFaderMove(int groupId, float newValue);
+    float vcaPositions[8] = { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
+
     // Send current mixer state for all tracks to the simulator
     void broadcastMixerState();
 

@@ -20,6 +20,8 @@ enum class MsgType
     RawSysEx,         // middleware -> controller: raw SysEx for debug display
     TrackMeta,        // middleware -> controller: track metadata from plugin
     MeterUpdate,      // middleware -> controller: channel meter levels
+    VcaFaderMove,     // controller -> middleware: VCA fader moved
+    VcaFaderUpdate,   // middleware -> controller: VCA fader position (for sync)
     MidiDeviceChange  // (internal, not sent over wire)
 };
 
@@ -97,6 +99,10 @@ struct Message
     int meterChannel = -1;
     int meterPeakL   = 0;
     int meterPeakR   = 0;
+
+    // VCA fader
+    int   vcaGroupId = 0;   // which group this VCA controls
+    float vcaValue   = 0.5f; // fader position (0.5 = unity/center)
 
     // Internal
     std::string midiDeviceName;

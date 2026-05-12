@@ -220,8 +220,63 @@ void MiddlewareApp::onClientMessage(const Sim::Message& msg)
             break;
         }
 
+        case Sim::MsgType::VcaFaderMove:
+        {
+            handleVcaFaderMove(msg.vcaGroupId, msg.vcaValue);
+            break;
+        }
+
         default:
             break;
+    }
+}
+
+void MiddlewareApp::handleVcaFaderMove(int groupId, float newValue)
+{
+    if (groupId < 1 || groupId > 8) return;
+
+    float oldValue = vcaPositions[groupId - 1];
+    vcaPositions[groupId - 1] = newValue;
+
+    // Calculate dB delta: both positions use the same dB-linear curve as channel faders
+    // Position 0.5 = 0dB offset. Map 0-1 to -20dB to +20dB range for VCA
+    auto posToDb = [](float pos) -> double
+    {
+        return (pos - 0.5) * 40.0;  // -20 to +20 dB range
+    };
+
+    double oldDb = posToDb(oldValue);
+    double newDb = posToDb(newValue);
+    double deltaDb = newDb - oldDb;
+
+    if (std::abs(deltaDb) < 0.01) return;
+
+    // Apply delta to all channels in this group
+    double deltaLinear = std::pow(10.0, deltaDb / 20.0);
+
+    auto tracks = trackRegistry.getAllTracks();
+    for (auto& t : tracks)
+    {
+        if (t.groupId == groupId && t.mcuChannel >= 0)
+        {
+            // Apply relative gain change
+            double newVolume = t.volume * deltaLinear;
+            if (newVolume < 0.0) newVolume = 0.0;
+            if (newVolume > 1.0) newVolume = 1.0;  // normalized range
+
+            trackRegistry.updateMixerState(t.trackUuid, newVolume,
+                                           t.pan, t.mute, t.solo, t.selected);
+
+            // Send to plugin (denormalized by plugin using its dB curve)
+            routeToPlugin(t.mcuChannel, "setVolume", newVolume);
+
+            // Send fader update to simulator
+            Sim::Message faderMsg;
+            faderMsg.type    = Sim::MsgType::FaderUpdate;
+            faderMsg.faderId = t.mcuChannel;
+            faderMsg.value   = static_cast<float>(newVolume);
+            tcpServer.broadcast(faderMsg);
+        }
     }
 }
 
@@ -241,11 +296,22 @@ void MiddlewareApp::onDawMessage(const Sim::Message& msg)
 
 void MiddlewareApp::onTrackRegistryChanged()
 {
-    // Only broadcast metadata and group assignments here.
-    // Mixer state (faders, pan, mute, solo) is sent per-channel
-    // directly from the plugin server when a channelState arrives.
     broadcastTrackMeta();
     broadcastTrackAssignments();
+
+    // Send VCA fader info for all groups to the simulator
+    // Named groups create/update VCA strips, unnamed ones remove them
+    auto groups = trackRegistry.getGroups();
+    for (auto& g : groups)
+    {
+        Sim::Message msg;
+        msg.type       = Sim::MsgType::VcaFaderUpdate;
+        msg.vcaGroupId = g.id;
+        msg.vcaValue   = vcaPositions[g.id - 1];
+        std::strncpy(msg.trackName, g.name.toRawUTF8(), 31);
+        msg.trackName[31] = '\0';
+        tcpServer.broadcast(msg);
+    }
 }
 
 void MiddlewareApp::broadcastMixerState()
