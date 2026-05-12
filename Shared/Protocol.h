@@ -37,7 +37,9 @@ static constexpr uint8_t kVPotRing    = 0x07;
 static constexpr uint8_t kLcdUpdate   = 0x08;
 static constexpr uint8_t kRawSysEx    = 0x09;
 static constexpr uint8_t kTrackMeta   = 0x0A;
-static constexpr uint8_t kMeterUpdate = 0x0B;
+static constexpr uint8_t kMeterUpdate  = 0x0B;
+static constexpr uint8_t kVcaFaderMove = 0x0C;
+static constexpr uint8_t kVcaFaderUpdate = 0x0D;
 
 // ---------------------------------------------------------------------------
 // Encoding
@@ -172,6 +174,26 @@ inline std::vector<uint8_t> encode(const Sim::Message& msg)
             payload[3] = static_cast<uint8_t>((msg.meterPeakR >> 7) & 0x7F);
             payload[4] = static_cast<uint8_t>(msg.meterPeakR & 0x7F);
             payLen = 5;
+            break;
+        }
+
+        case Sim::MsgType::VcaFaderMove:
+        case Sim::MsgType::VcaFaderUpdate:
+        {
+            type = (msg.type == Sim::MsgType::VcaFaderMove) ? kVcaFaderMove : kVcaFaderUpdate;
+            payload[0] = static_cast<uint8_t>(msg.vcaGroupId);
+            int raw = static_cast<int>(msg.vcaValue * 16383.0f + 0.5f);
+            if (raw < 0) raw = 0;
+            if (raw > 16383) raw = 16383;
+            payload[1] = static_cast<uint8_t>((raw >> 7) & 0x7F);
+            payload[2] = static_cast<uint8_t>(raw & 0x7F);
+            // Group name (up to 15 chars)
+            int nameLen = static_cast<int>(std::strlen(msg.trackName));
+            if (nameLen > 15) nameLen = 15;
+            payload[3] = static_cast<uint8_t>(nameLen);
+            for (int i = 0; i < nameLen; ++i)
+                payload[4 + i] = static_cast<uint8_t>(msg.trackName[i]);
+            payLen = static_cast<uint8_t>(4 + nameLen);
             break;
         }
 
@@ -384,6 +406,40 @@ private:
                 msg.meterChannel = payload[0];
                 msg.meterPeakL   = ((payload[1] & 0x7F) << 7) | (payload[2] & 0x7F);
                 msg.meterPeakR   = ((payload[3] & 0x7F) << 7) | (payload[4] & 0x7F);
+                break;
+            }
+
+            case kVcaFaderMove:
+            {
+                if (payLen < 3) return;
+                msg.type       = Sim::MsgType::VcaFaderMove;
+                msg.vcaGroupId = payload[0];
+                msg.vcaValue   = static_cast<float>(((payload[1] & 0x7F) << 7) | (payload[2] & 0x7F)) / 16383.0f;
+                if (payLen > 3)
+                {
+                    int nameLen = payload[3];
+                    if (nameLen > 15) nameLen = 15;
+                    for (int i = 0; i < nameLen && (4 + i) < payLen; ++i)
+                        msg.trackName[i] = static_cast<char>(payload[4 + i]);
+                    msg.trackName[nameLen] = '\0';
+                }
+                break;
+            }
+
+            case kVcaFaderUpdate:
+            {
+                if (payLen < 3) return;
+                msg.type       = Sim::MsgType::VcaFaderUpdate;
+                msg.vcaGroupId = payload[0];
+                msg.vcaValue   = static_cast<float>(((payload[1] & 0x7F) << 7) | (payload[2] & 0x7F)) / 16383.0f;
+                if (payLen > 3)
+                {
+                    int nameLen = payload[3];
+                    if (nameLen > 15) nameLen = 15;
+                    for (int i = 0; i < nameLen && (4 + i) < payLen; ++i)
+                        msg.trackName[i] = static_cast<char>(payload[4 + i]);
+                    msg.trackName[nameLen] = '\0';
+                }
                 break;
             }
 

@@ -5,6 +5,7 @@
 #include "ControllerClient.h"
 #include "SimChannelStrip.h"
 #include "SimTransport.h"
+#include "SimVcaStrip.h"
 #include "DebugPanel.h"
 
 class MainComponent : public juce::Component,
@@ -43,6 +44,11 @@ private:
 
     // Per-channel type tracking (from plugin metadata)
     juce::String channelTypes[24];
+
+    // VCA fader strips
+    std::vector<std::unique_ptr<SimVcaStrip>> vcaStrips;
+    juce::Component vcaContainer;
+    void updateVcaStrips();
 
     // LCD buffer: 2 rows × 56 chars per MCU unit × 3 units
     char lcdBuffer[336] = {};  // 3 * 112

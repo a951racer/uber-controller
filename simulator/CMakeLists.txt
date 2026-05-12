@@ -17,6 +17,8 @@ target_sources(SimSurface PRIVATE
     Source/SimVPot.cpp
     Source/SimTransport.h
     Source/SimTransport.cpp
+    Source/SimVcaStrip.h
+    Source/SimVcaStrip.cpp
     Source/SimChannelStrip.h
     Source/SimChannelStrip.cpp
     Source/DebugPanel.h

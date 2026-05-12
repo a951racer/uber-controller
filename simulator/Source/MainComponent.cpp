@@ -35,6 +35,9 @@ MainComponent::MainComponent()
     // --- Transport ---
     addAndMakeVisible(transport);
 
+    // --- VCA container ---
+    addAndMakeVisible(vcaContainer);
+
     // --- Status ---
     addAndMakeVisible(statusLabel);
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
@@ -123,6 +126,27 @@ void MainComponent::resized()
     // Transport at bottom
     transport.setBounds(bounds.removeFromBottom(kTransportH));
     bounds.removeFromBottom(4);
+
+    // VCA faders on the right (same height as channel strips)
+    if (!vcaStrips.empty())
+    {
+        int vcaW = kStripW * (int)vcaStrips.size();
+        auto vcaArea = bounds.removeFromRight(vcaW);
+        vcaContainer.setBounds(vcaArea);
+
+        int stripW = vcaArea.getWidth() / (int)vcaStrips.size();
+        int x = 0;
+        for (auto& vca : vcaStrips)
+        {
+            vca->setBounds(x, 0, stripW, vcaArea.getHeight());
+            x += stripW;
+        }
+        bounds.removeFromRight(4);  // gap between VCAs and channels
+    }
+    else
+    {
+        vcaContainer.setBounds(0, 0, 0, 0);
+    }
 
     // Channel strip viewport fills the rest
     stripViewport.setBounds(bounds);
@@ -215,6 +239,7 @@ void MainComponent::handleUiMessage(const Sim::Message& msg)
         case Sim::MsgType::FaderTouch:
         case Sim::MsgType::ButtonPress:
         case Sim::MsgType::VPotTurn:
+        case Sim::MsgType::VcaFaderMove:
             client.send(msg);
             break;
         default:
@@ -299,6 +324,44 @@ void MainComponent::handleServerMessage(const Sim::Message& msg)
                 float normL = static_cast<float>(msg.meterPeakL) / 16383.0f;
                 float normR = static_cast<float>(msg.meterPeakR) / 16383.0f;
                 strips[ch]->setMeterLevels(normL, normR);
+            }
+            break;
+        }
+
+        case Sim::MsgType::VcaFaderUpdate:
+        {
+            int gid = msg.vcaGroupId;
+            juce::String name(msg.trackName);
+
+            // Find existing strip
+            int existingIdx = -1;
+            for (int i = 0; i < (int)vcaStrips.size(); ++i)
+                if (vcaStrips[i]->getGroupId() == gid) { existingIdx = i; break; }
+
+            if (name.isEmpty())
+            {
+                // Remove strip if name is cleared
+                if (existingIdx >= 0)
+                {
+                    vcaContainer.removeChildComponent(vcaStrips[existingIdx].get());
+                    vcaStrips.erase(vcaStrips.begin() + existingIdx);
+                    resized();
+                }
+            }
+            else if (existingIdx >= 0)
+            {
+                // Update existing
+                vcaStrips[existingIdx]->setGroupName(name);
+                vcaStrips[existingIdx]->setFaderValue(msg.vcaValue);
+            }
+            else
+            {
+                // Create new
+                auto vca = std::make_unique<SimVcaStrip>(gid, name, uiBus);
+                vca->setFaderValue(msg.vcaValue);
+                vcaContainer.addAndMakeVisible(*vca);
+                vcaStrips.push_back(std::move(vca));
+                resized();
             }
             break;
         }
