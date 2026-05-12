@@ -339,4 +339,24 @@ void PluginServer::processLine(const std::string& line, std::string& lastTrackUu
         auto utf8 = trackJson.toUTF8();
         ::send(clientSock, utf8.getAddress(), (int)utf8.sizeInBytes() - 1, 0);
     }
+    else if (cmd == "transportInfo")
+    {
+        Sim::Message msg;
+        msg.type               = Sim::MsgType::TransportInfo;
+        msg.transportBpm       = static_cast<double>(obj->getProperty("bpm"));
+        msg.transportTimeSigN  = static_cast<int>(obj->getProperty("timeSigNum"));
+        msg.transportTimeSigD  = static_cast<int>(obj->getProperty("timeSigDen"));
+        msg.transportPpq       = static_cast<double>(obj->getProperty("ppq"));
+        msg.transportSamples   = static_cast<int64_t>(static_cast<double>(obj->getProperty("samples")));
+        msg.transportSampleRate = static_cast<double>(obj->getProperty("sampleRate"));
+        msg.transportPlaying   = static_cast<int>(obj->getProperty("playing")) != 0;
+        msg.transportLooping   = static_cast<int>(obj->getProperty("looping")) != 0;
+        msg.transportLoopStart = static_cast<double>(obj->getProperty("loopStart"));
+        msg.transportLoopEnd   = static_cast<double>(obj->getProperty("loopEnd"));
+        msg.transportBar       = static_cast<int>(obj->getProperty("bar"));
+        msg.transportBeat      = static_cast<int>(obj->getProperty("beat"));
+
+        if (onTransportInfo)
+            onTransportInfo(msg);
+    }
 }

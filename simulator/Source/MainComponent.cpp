@@ -8,7 +8,7 @@ static constexpr int kFilterBarH    = 28;
 static constexpr int kDebugPanelW   = 520;
 static constexpr int kStripW        = 75;   // width per channel strip
 static constexpr int kWindowW       = 1850;
-static constexpr int kWindowH       = 550;
+static constexpr int kWindowH       = 620;
 
 static const juce::StringArray kFilterNames = { "All", "Audio", "Instrument", "Bus", "FX", "VCA", "Master" };
 
@@ -34,6 +34,7 @@ MainComponent::MainComponent()
 
     // --- Transport ---
     addAndMakeVisible(transport);
+    addAndMakeVisible(transportInfo);
 
     // --- VCA container ---
     addAndMakeVisible(vcaContainer);
@@ -123,8 +124,9 @@ void MainComponent::resized()
     for (auto& btn : filterButtons)
         btn->setBounds(filterBar.removeFromLeft(btnW).reduced(2, 2));
 
-    // Transport at bottom
+    // Transport info + buttons at bottom
     transport.setBounds(bounds.removeFromBottom(kTransportH));
+    transportInfo.setBounds(bounds.removeFromBottom(60));
     bounds.removeFromBottom(4);
 
     // VCA faders on the right (same height as channel strips)
@@ -282,8 +284,8 @@ void MainComponent::handleServerMessage(const Sim::Message& msg)
             if (globalCh >= 0 && globalCh < kTotalChannels)
                 strips[globalCh]->setButtonLed(note, msg.pressed);
 
-            if (note >= 0x5B && note <= 0x5F)
-                transport.setLed(static_cast<Sim::TransportButton>(note), msg.pressed);
+            if (note >= 0x56 && note <= 0x5F)
+                transport.setLedByNote(note, msg.pressed);
             break;
         }
 
@@ -365,6 +367,10 @@ void MainComponent::handleServerMessage(const Sim::Message& msg)
             }
             break;
         }
+
+        case Sim::MsgType::TransportInfo:
+            transportInfo.update(msg);
+            break;
 
         default:
             break;

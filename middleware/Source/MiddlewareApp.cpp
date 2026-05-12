@@ -38,11 +38,6 @@ void MiddlewareApp::start(const Config& cfg)
     // Meter receiver (UDP)
     meterReceiver.start(9002, [this](const Sim::Message& msg)
     {
-        static int meterCount = 0;
-        if (++meterCount % 100 == 0)
-            std::cout << "[Meters] Received " << meterCount << " packets (ch="
-                      << msg.meterChannel << " L=" << msg.meterPeakL << " R=" << msg.meterPeakR << ")" << std::endl;
-
         tcpServer.broadcast(msg);
         if (serialServer.isConnected()) serialServer.send(msg);
     });
@@ -54,6 +49,13 @@ void MiddlewareApp::start(const Config& cfg)
         bool changed = trackRegistry.registerTrack(track);
         if (changed)
             sendChannelState(track);
+    });
+
+    // Forward transport info directly to the simulator
+    pluginServer.setTransportInfoCallback([this](const Sim::Message& msg)
+    {
+        tcpServer.broadcast(msg);
+        if (serialServer.isConnected()) serialServer.send(msg);
     });
 
     // Track registry change callback
@@ -106,7 +108,7 @@ void MiddlewareApp::onClientMessage(const Sim::Message& msg)
             int note = msg.buttonNote;
 
             // Transport → MCU (needs both press and release)
-            if (note >= 0x5B && note <= 0x5F)
+            if ((note >= 0x56 && note <= 0x5F))
             {
                 midiEngine.sendToDaw(msg);
                 break;
@@ -286,7 +288,7 @@ void MiddlewareApp::onDawMessage(const Sim::Message& msg)
     if (msg.type == Sim::MsgType::ButtonLedUpdate)
     {
         int note = msg.buttonNote;
-        if (note >= 0x5B && note <= 0x5F)
+        if ((note >= 0x56 && note <= 0x5F))
         {
             tcpServer.broadcast(msg);
             if (serialServer.isConnected()) serialServer.send(msg);

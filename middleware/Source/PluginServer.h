@@ -5,6 +5,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TrackRegistry.h"
+#include "../../Shared/SharedMessages.h"
 #include <vector>
 #include <mutex>
 #include <memory>
@@ -31,6 +32,7 @@ class PluginServer
 {
 public:
     using ChannelStateCallback = std::function<void(const TrackInfo&)>;
+    using TransportInfoCallback = std::function<void(const Sim::Message&)>;
 
     PluginServer(TrackRegistry& registry);
     ~PluginServer();
@@ -41,8 +43,8 @@ public:
     bool sendToChannel(int channelIndex, const std::string& json);
     void broadcastJson(const std::string& json);
 
-    /** Called when a plugin reports channel state — middleware uses this to update the simulator. */
     void setChannelStateCallback(ChannelStateCallback cb) { onChannelState = std::move(cb); }
+    void setTransportInfoCallback(TransportInfoCallback cb) { onTransportInfo = std::move(cb); }
 
 private:
     void acceptLoop();
@@ -65,4 +67,5 @@ private:
     std::vector<SocketHandle> allClients;
 
     ChannelStateCallback onChannelState;
+    TransportInfoCallback onTransportInfo;
 };

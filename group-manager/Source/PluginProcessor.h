@@ -13,7 +13,7 @@ public:
 
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -53,4 +53,7 @@ private:
 
     juce::String middlewareHost { "127.0.0.1" };
     int          middlewarePort = 9001;
+
+    int transportBlockCounter = 0;
+    static constexpr int kTransportSendInterval = 30;  // ~4Hz at 44.1kHz/256 samples
 };
