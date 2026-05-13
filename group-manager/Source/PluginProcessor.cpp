@@ -1,6 +1,7 @@
 // PluginProcessor.cpp
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cmath>
 
 UberGroupManagerProcessor::UberGroupManagerProcessor()
     : AudioProcessor(BusesProperties()
@@ -24,6 +25,48 @@ UberGroupManagerProcessor::UberGroupManagerProcessor()
 UberGroupManagerProcessor::~UberGroupManagerProcessor()
 {
     reporter.stop();
+}
+
+void UberGroupManagerProcessor::processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&)
+{
+    if (++transportBlockCounter < kTransportSendInterval)
+        return;
+    transportBlockCounter = 0;
+
+    auto* playHead = getPlayHead();
+    if (!playHead) return;
+
+    auto posInfo = playHead->getPosition();
+    if (!posInfo.hasValue()) return;
+
+    double bpm = posInfo->getBpm().orFallback(120.0);
+
+    int timeSigN = 4, timeSigD = 4;
+    if (auto ts = posInfo->getTimeSignature())
+    {
+        timeSigN = ts->numerator;
+        timeSigD = ts->denominator;
+    }
+
+    double ppq = posInfo->getPpqPosition().orFallback(0.0);
+    int64_t samples = posInfo->getTimeInSamples().orFallback(0);
+    bool playing = posInfo->getIsPlaying();
+    bool looping = posInfo->getIsLooping();
+
+    double loopStart = 0.0, loopEnd = 0.0;
+    if (auto loopPoints = posInfo->getLoopPoints())
+    {
+        loopStart = loopPoints->ppqStart;
+        loopEnd   = loopPoints->ppqEnd;
+    }
+
+    double beatsPerBar = timeSigN;
+    int barNumber = (int)(ppq / beatsPerBar) + 1;
+    int beatNumber = (int)(std::fmod(ppq, beatsPerBar)) + 1;
+
+    reporter.sendTransportInfo(bpm, timeSigN, timeSigD,
+                               ppq, samples, getSampleRate(), playing, looping,
+                               loopStart, loopEnd, barNumber, beatNumber);
 }
 
 std::vector<GroupDef> UberGroupManagerProcessor::getGroups() const

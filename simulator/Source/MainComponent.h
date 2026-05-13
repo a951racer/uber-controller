@@ -6,6 +6,7 @@
 #include "SimChannelStrip.h"
 #include "SimTransport.h"
 #include "SimVcaStrip.h"
+#include "TransportInfoPanel.h"
 #include "DebugPanel.h"
 
 class MainComponent : public juce::Component,
@@ -26,6 +27,7 @@ private:
 
     ControllerClient client;
     SimTransport     transport;
+    TransportInfoPanel transportInfo;
 
     std::vector<std::unique_ptr<SimChannelStrip>> strips;
 

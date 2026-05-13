@@ -68,8 +68,8 @@ void McuUnit::sendToDaw(const Sim::Message& msg, int localFaderId)
         {
             int note = msg.buttonNote;
 
-            // Transport buttons (0x5B-0x5F): send as-is
-            if (note >= 0x5B && note <= 0x5F)
+            // Transport buttons (0x56-0x5F): send as-is
+            if (note >= 0x56 && note <= 0x5F)
             {
                 midiOut->sendMessageNow(McuProtocol::encodeButtonPress(note, msg.pressed));
                 break;
@@ -266,6 +266,14 @@ void MidiEngine::sendToDaw(const Sim::Message& msg)
         {
             int note = msg.buttonNote;
 
+            // Transport buttons first (0x56-0x5F) — send directly on unit 0
+            if (note >= 0x56 && note <= 0x5F)
+            {
+                if (!mcuUnits.empty())
+                    mcuUnits[0]->sendToDaw(msg, 0);
+                return;
+            }
+
             // Decode global button note to find globalCh
             // Rec: 0x00+ch, Solo: 0x20+ch, Mute: 0x40+ch, Select: 0x60+ch
             if (note >= 0x60 && note < 0x60 + 24)
@@ -278,7 +286,7 @@ void MidiEngine::sendToDaw(const Sim::Message& msg)
                 globalCh = note - 0x00;
             else
             {
-                // Transport or other global buttons — send on unit 0
+                // Other global buttons — send on unit 0
                 if (!mcuUnits.empty())
                     mcuUnits[0]->sendToDaw(msg, 0);
                 return;

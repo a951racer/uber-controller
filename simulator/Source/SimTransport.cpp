@@ -12,6 +12,7 @@ SimTransport::SimTransport(Sim::MessageBus& bus)
         { static_cast<int>(TB::Stop),        "Stop" },
         { static_cast<int>(TB::Play),        "Play" },
         { static_cast<int>(TB::Record),      "Rec"  },
+        { 0x56,                              "Loop" },
     };
 
     for (auto& d : defs)
@@ -36,6 +37,19 @@ void SimTransport::setLed(Sim::TransportButton button, bool on)
     for (auto& btn : buttons)
     {
         if (btn->noteNumber == note)
+        {
+            btn->ledOn = on;
+            btn->repaint();
+            return;
+        }
+    }
+}
+
+void SimTransport::setLedByNote(int noteNumber, bool on)
+{
+    for (auto& btn : buttons)
+    {
+        if (btn->noteNumber == noteNumber)
         {
             btn->ledOn = on;
             btn->repaint();

@@ -184,3 +184,31 @@ void GroupReporter::processIncoming(const juce::String& line)
         }
     }
 }
+
+void GroupReporter::sendTransportInfo(double bpm, int timeSigNum, int timeSigDen,
+                                     double ppqPosition, int64_t timeInSamples,
+                                     double sampleRate,
+                                     bool isPlaying, bool isLooping,
+                                     double loopStartPpq, double loopEndPpq,
+                                     int barNumber, int beatNumber)
+{
+    if (!connected) return;
+
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("cmd", "transportInfo");
+    obj->setProperty("plugin_type", "group_manager");
+    obj->setProperty("bpm", bpm);
+    obj->setProperty("timeSigNum", timeSigNum);
+    obj->setProperty("timeSigDen", timeSigDen);
+    obj->setProperty("ppq", ppqPosition);
+    obj->setProperty("samples", (double)timeInSamples);
+    obj->setProperty("sampleRate", sampleRate);
+    obj->setProperty("playing", isPlaying);
+    obj->setProperty("looping", isLooping);
+    obj->setProperty("loopStart", loopStartPpq);
+    obj->setProperty("loopEnd", loopEndPpq);
+    obj->setProperty("bar", barNumber);
+    obj->setProperty("beat", beatNumber);
+
+    sendJson(juce::JSON::toString(juce::var(obj), true));
+}

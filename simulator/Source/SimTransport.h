@@ -10,6 +10,7 @@ public:
 
     void resized() override;
     void setLed(Sim::TransportButton button, bool on);
+    void setLedByNote(int noteNumber, bool on);
 
 private:
     struct TransportBtn : public juce::Component

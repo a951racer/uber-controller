@@ -22,6 +22,7 @@ enum class MsgType
     MeterUpdate,      // middleware -> controller: channel meter levels
     VcaFaderMove,     // controller -> middleware: VCA fader moved
     VcaFaderUpdate,   // middleware -> controller: VCA fader position (for sync)
+    TransportInfo,    // middleware -> controller: session/transport state
     MidiDeviceChange  // (internal, not sent over wire)
 };
 
@@ -103,6 +104,20 @@ struct Message
     // VCA fader
     int   vcaGroupId = 0;   // which group this VCA controls
     float vcaValue   = 0.5f; // fader position (0.5 = unity/center)
+
+    // Transport/session info
+    double transportBpm       = 120.0;
+    int    transportTimeSigN  = 4;
+    int    transportTimeSigD  = 4;
+    double transportPpq       = 0.0;
+    int64_t transportSamples  = 0;
+    double  transportSampleRate = 44100.0;
+    bool   transportPlaying   = false;
+    bool   transportLooping   = false;
+    double transportLoopStart = 0.0;
+    double transportLoopEnd   = 0.0;
+    int    transportBar       = 1;
+    int    transportBeat      = 1;
 
     // Internal
     std::string midiDeviceName;

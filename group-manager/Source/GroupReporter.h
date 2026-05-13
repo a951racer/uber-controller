@@ -46,6 +46,14 @@ public:
     void setGroups(const std::vector<GroupDef>& groups);
     void setTrackUpdateCallback(TrackUpdateCallback cb) { onTrackUpdate = std::move(cb); }
 
+    /** Send transport/session info to the middleware. */
+    void sendTransportInfo(double bpm, int timeSigNum, int timeSigDen,
+                           double ppqPosition, int64_t timeInSamples,
+                           double sampleRate,
+                           bool isPlaying, bool isLooping,
+                           double loopStartPpq, double loopEndPpq,
+                           int barNumber, int beatNumber);
+
     bool isConnected() const { return connected.load(); }
 
     static constexpr int kReconnectMs = 5000;

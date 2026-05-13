@@ -40,6 +40,7 @@ static constexpr uint8_t kTrackMeta   = 0x0A;
 static constexpr uint8_t kMeterUpdate  = 0x0B;
 static constexpr uint8_t kVcaFaderMove = 0x0C;
 static constexpr uint8_t kVcaFaderUpdate = 0x0D;
+static constexpr uint8_t kTransportInfo = 0x0E;
 
 // ---------------------------------------------------------------------------
 // Encoding
@@ -194,6 +195,48 @@ inline std::vector<uint8_t> encode(const Sim::Message& msg)
             for (int i = 0; i < nameLen; ++i)
                 payload[4 + i] = static_cast<uint8_t>(msg.trackName[i]);
             payLen = static_cast<uint8_t>(4 + nameLen);
+            break;
+        }
+
+        case Sim::MsgType::TransportInfo:
+        {
+            type = kTransportInfo;
+            // BPM as uint16 * 10 (0-6553.5)
+            uint16_t bpmRaw = static_cast<uint16_t>(msg.transportBpm * 10.0 + 0.5);
+            payload[0] = static_cast<uint8_t>(bpmRaw >> 8);
+            payload[1] = static_cast<uint8_t>(bpmRaw & 0xFF);
+            // Time signature
+            payload[2] = static_cast<uint8_t>(msg.transportTimeSigN);
+            payload[3] = static_cast<uint8_t>(msg.transportTimeSigD);
+            // Bar (uint16)
+            payload[4] = static_cast<uint8_t>(msg.transportBar >> 8);
+            payload[5] = static_cast<uint8_t>(msg.transportBar & 0xFF);
+            // Beat
+            payload[6] = static_cast<uint8_t>(msg.transportBeat);
+            // Flags
+            payload[7] = (msg.transportPlaying ? 0x01 : 0x00) |
+                         (msg.transportLooping ? 0x02 : 0x00);
+            // PPQ as float bytes
+            float ppqF = static_cast<float>(msg.transportPpq);
+            std::memcpy(&payload[8], &ppqF, 4);
+            // Loop start/end as float bytes
+            float lsF = static_cast<float>(msg.transportLoopStart);
+            float leF = static_cast<float>(msg.transportLoopEnd);
+            std::memcpy(&payload[12], &lsF, 4);
+            std::memcpy(&payload[16], &leF, 4);
+            // Sample rate as uint16 (rate / 100)
+            uint16_t srRaw = static_cast<uint16_t>(msg.transportSampleRate / 100.0 + 0.5);
+            payload[20] = static_cast<uint8_t>(srRaw >> 8);
+            payload[21] = static_cast<uint8_t>(srRaw & 0xFF);
+            // Samples as 6 bytes (48-bit, enough for hours of audio)
+            int64_t s = msg.transportSamples;
+            payload[22] = static_cast<uint8_t>((s >> 40) & 0xFF);
+            payload[23] = static_cast<uint8_t>((s >> 32) & 0xFF);
+            payload[24] = static_cast<uint8_t>((s >> 24) & 0xFF);
+            payload[25] = static_cast<uint8_t>((s >> 16) & 0xFF);
+            payload[26] = static_cast<uint8_t>((s >> 8) & 0xFF);
+            payload[27] = static_cast<uint8_t>(s & 0xFF);
+            payLen = 28;
             break;
         }
 
@@ -440,6 +483,31 @@ private:
                         msg.trackName[i] = static_cast<char>(payload[4 + i]);
                     msg.trackName[nameLen] = '\0';
                 }
+                break;
+            }
+
+            case kTransportInfo:
+            {
+                if (payLen < 28) return;
+                msg.type = Sim::MsgType::TransportInfo;
+                msg.transportBpm = ((payload[0] << 8) | payload[1]) / 10.0;
+                msg.transportTimeSigN = payload[2];
+                msg.transportTimeSigD = payload[3];
+                msg.transportBar  = (payload[4] << 8) | payload[5];
+                msg.transportBeat = payload[6];
+                msg.transportPlaying = (payload[7] & 0x01) != 0;
+                msg.transportLooping = (payload[7] & 0x02) != 0;
+                float ppqF, lsF, leF;
+                std::memcpy(&ppqF, &payload[8], 4);
+                std::memcpy(&lsF, &payload[12], 4);
+                std::memcpy(&leF, &payload[16], 4);
+                msg.transportPpq       = ppqF;
+                msg.transportLoopStart = lsF;
+                msg.transportLoopEnd   = leF;
+                msg.transportSampleRate = ((payload[20] << 8) | payload[21]) * 100.0;
+                msg.transportSamples = ((int64_t)payload[22] << 40) | ((int64_t)payload[23] << 32) |
+                                       ((int64_t)payload[24] << 24) | ((int64_t)payload[25] << 16) |
+                                       ((int64_t)payload[26] << 8)  | (int64_t)payload[27];
                 break;
             }
 
